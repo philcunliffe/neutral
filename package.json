@@ -1,0 +1,23 @@
+{
+  "name": "neutral",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Declarative reconcilers that drive out-of-draft LLPs through technical design, implementation design, task fan-out, integration PR, and review — converging a repo toward a desired base state from git ground truth.",
+  "bin": {
+    "neutral": "./bin/neutral.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "typescript": "6.0.3"
+  }
+}
