@@ -63,7 +63,7 @@ function implPrompt(t) {
 1. \`git fetch --prune\`.
 2. Idempotent branch: if \`origin/${t.branch}\` exists, base your work on it (\`git switch -c ${t.branch} origin/${t.branch}\`) and CONTINUE — do NOT start over. Otherwise create it off the integration branch: \`git switch -c ${t.branch} origin/${integration}\`.
 3. On this branch read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs it derives from. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Match the repo's style (AGENTS.md: ESM, no semicolons, JSDoc types).
-4. Add/adjust tests. Run \`node --test\` and \`npm run typecheck\`. BOTH must pass.
+4. Add/adjust tests. If \`node_modules\` is missing in this worktree, run \`npm install\` first (typecheck needs it). Run \`node --test\` and \`npm run typecheck\`. BOTH must pass.
 5. Commit (message ending with a \`Task-Id: ${t.id}\` trailer). \`git push -u origin ${t.branch}\`.
 6. Ensure a PR into ${integration}: reuse \`gh pr list --head ${t.branch}\` if present, else \`gh pr create --base ${integration} --head ${t.branch} --title "${t.id}: <summary>" --body "Task-Id: ${t.id}"\`.
 
@@ -72,9 +72,9 @@ Return: id="${t.id}", branch="${t.branch}", prNumber, headSha (\`git rev-parse H
 
 function mergePrompt(built) {
   const list = built.map(b => `${b.id} (origin/${b.branch})`).join(', ')
-  return `You are the SERIAL merger for change set "${slug}" in the neutral repo at ${repo}. You are in an isolated worktree. Merge these task branches into ${integration} ONE AT A TIME — never in parallel — each fully verified before the next: ${list}. These wave tasks are mutually independent, so order among them does not matter.
+  return `You are the SERIAL merger for change set "${slug}" in the neutral repo at ${repo}. Work directly in this repo checkout, which is already on the ${integration} branch (do NOT create a worktree — that branch is checked out here). Merge these task branches into ${integration} ONE AT A TIME — never in parallel — each fully verified before the next: ${list}. These wave tasks are mutually independent, so order among them does not matter.
 
-Setup: \`git fetch --prune\`; check out the integration branch tracking the remote: \`git switch -C ${integration} origin/${integration}\`.
+Setup: \`git fetch --prune\`; confirm you are on ${integration} (\`git switch ${integration}\`) and sync it to the remote (\`git merge --ff-only origin/${integration}\`).
 
 For EACH task branch:
 1. \`git merge --no-ff --no-edit origin/<task-branch>\`  (NOT squash — parentage must survive so --is-ancestor stays true).
@@ -116,7 +116,7 @@ while (guard++ < 64) {
     return { slug, status: 'stuck', reason: 'all-impl-failed', done: r.done.map(t => t.id), stuck: r.ready.map(t => t.id) }
   }
 
-  await agent(mergePrompt(ok), { label: `merge:${slug}`, phase: 'Merge', isolation: 'worktree', schema: MERGE_SCHEMA })
+  await agent(mergePrompt(ok), { label: `merge:${slug}`, phase: 'Merge', schema: MERGE_SCHEMA })
   // Next iteration's derive-ready re-reads git truth — the merge agent's claims are not trusted here.
 }
 
