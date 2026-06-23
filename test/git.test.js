@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isAncestor, doneSetFromGit, branchExists, changeSetMergedToTarget } from '../src/git.js'
+import { isAncestor, doneSetFromGit, branchExists, resolveRef, changeSetMergedToTarget } from '../src/git.js'
 
 /**
  * A fake `git` runner. `ancestors[a]` lists refs that `a` is an ancestor of;
@@ -39,6 +39,12 @@ test('branchExists reflects whether the ref resolves', async () => {
   const exec = fakeGit({ exist: ['integration'] })
   assert.equal(await branchExists('/r', 'integration', exec), true)
   assert.equal(await branchExists('/r', 'nope', exec), false)
+})
+
+test('resolveRef prefers origin/<name>, falls back to local, else null', async () => {
+  assert.equal(await resolveRef('/r', 'integration/x', fakeGit({ exist: ['origin/integration/x', 'integration/x'] })), 'origin/integration/x')
+  assert.equal(await resolveRef('/r', 'integration/x', fakeGit({ exist: ['integration/x'] })), 'integration/x')
+  assert.equal(await resolveRef('/r', 'integration/x', fakeGit({ exist: [] })), null)
 })
 
 test('doneSetFromGit derives done from verified ancestry, not a status field', async () => {

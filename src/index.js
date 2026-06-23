@@ -10,7 +10,8 @@ export { coverage } from './coverage.js'
 export { readyTasks, topoOrder } from './ready.js'
 export { parseTasks } from './tasks.js'
 export {
-  isAncestor, doneSetFromGit, branchExists,
+  isAncestor, doneSetFromGit, branchExists, resolveRef,
   defaultBranch, integrationBranches, changeSetMergedToTarget, showFile
 } from './git.js'
 export { observe } from './state.js'
+export { inFlightCoveredRefs } from './inflight.js'

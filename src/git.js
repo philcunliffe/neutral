@@ -62,8 +62,24 @@ export async function isAncestor(repo, a, b, exec = run) {
 }
 
 /**
+ * Resolve a branch name to the ref that actually exists, preferring the
+ * remote-tracking ref (`origin/<name>`, where worktree agents push) over a local
+ * branch. Returns null if neither resolves.
+ * @param {string} repo
+ * @param {string} name
+ * @param {typeof run} [exec]
+ * @returns {Promise<string | null>}
+ */
+export async function resolveRef(repo, name, exec = run) {
+  if (await branchExists(repo, `origin/${name}`, exec)) return `origin/${name}`
+  if (await branchExists(repo, name, exec)) return name
+  return null
+}
+
+/**
  * Derive the done-set for a change set's tasks from git ground truth: a task is
- * done iff its branch is a verified ancestor of the integration branch. A missing
+ * done iff its branch is a verified ancestor of the integration branch. Refs are
+ * resolved against `origin/*` first (where the implementer pushes). A missing
  * integration branch means "nothing done yet"; a missing task branch means "that
  * task is not done" — neither is an error.
  * @param {string} repo
@@ -75,10 +91,12 @@ export async function isAncestor(repo, a, b, exec = run) {
 export async function doneSetFromGit(repo, integration, tasks, exec = run) {
   /** @type {Set<string>} */
   const done = new Set()
-  if (!(await branchExists(repo, integration, exec))) return done
+  const integ = await resolveRef(repo, integration, exec)
+  if (!integ) return done
   for (const t of tasks) {
-    if (!(await branchExists(repo, t.branch, exec))) continue
-    if (await isAncestor(repo, t.branch, integration, exec)) done.add(t.id)
+    const br = await resolveRef(repo, t.branch, exec)
+    if (!br) continue
+    if (await isAncestor(repo, br, integ, exec)) done.add(t.id)
   }
   return done
 }
@@ -103,14 +121,20 @@ export async function defaultBranch(repo, exec = run) {
 }
 
 /**
- * The local `integration/*` branch short-names.
+ * The `integration/*` change-set branch names, local and remote, deduped to the
+ * `integration/<slug>` short form.
  * @param {string} repo
  * @param {typeof run} [exec]
  * @returns {Promise<string[]>}
  */
 export async function integrationBranches(repo, exec = run) {
-  const out = await exec('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/integration'], repo)
-  return out.split('\n').map(s => s.trim()).filter(Boolean)
+  const out = await exec('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/integration', 'refs/remotes/origin/integration'], repo)
+  /** @type {Set<string>} */
+  const set = new Set()
+  for (const line of out.split('\n').map(s => s.trim()).filter(Boolean)) {
+    set.add(line.replace(/^origin\//, ''))
+  }
+  return [...set]
 }
 
 /**
