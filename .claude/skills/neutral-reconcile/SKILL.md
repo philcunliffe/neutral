@@ -44,35 +44,45 @@ verifies it. (See LLP 0001/0002.)
 3. **Change set with an open PR needing review/fix** → Review stage.
 4. **Change set with a `plan` but unmerged tasks** → Implement stage.
 5. **`design` LLP without a `plan`** → Impl-designer stage.
-6. **Uncovered request(s)** (`neutral coverage` exits 1) → Designer stage.
+6. **Backlog non-empty** (`neutral backlog` exits 1) → Designer stage.
 
-Advance only the single highest-priority gap per tick. Within a stage, drain
-(the Designer may group several requests; the Implementer drains all task waves).
+Advance only the single highest-priority gap per tick. Within a stage, drain: the
+Designer plans + mints the WHOLE backlog as ordered change sets in one pass; the
+Implementer drains all task waves of one change set.
 
 ## Stage: Designer
 
-Goal: every live request is `@ref`'d by a `design` LLP.
+Goal: every live request is `@ref`'d by a `design` LLP. The Designer plans the
+**whole** partition up front and mints **all** the change sets in one pass — it
+does not dribble out one group per tick.
 
-1. `neutral backlog --json` — the authoritative list of requests that
-   need a design (it already excludes requests covered by code or by an in-flight
-   `integration/*` design). If empty, there is no Designer work this tick.
-2. **Decide grouping + order.** Group requests that are designed/implementable
-   together; pick a short kebab `<slug>` for the change set. If this change set must
-   follow others, note them for a `Depends-on:` header. You have full authority over
-   which requests to group and in what order.
-3. **Create the change-set branch:** `git switch -c integration/<slug> origin/<DEFAULT>`
-   (DEFAULT = `neutral` target, i.e. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
-4. **Mint the `design` LLP** at `llp/NNNN-<slug>.design.md`. NNNN = one more than the
-   highest LLP number across `main` and all `integration/*` branches
-   (`git ls-tree -r --name-only <ref> llp/`). Header: `**Type:** design`,
-   `**Status:** Active`, `**Systems:**`, `**Generated-by:** neutral`, and
-   `**Depends-on:**` if any. Body: the technical design, with one
-   `@ref LLP NNNN — <gloss>` line per request it covers (this is what satisfies
-   coverage). Use the `llp-create` skill conventions if helpful.
-5. **Commit + push:** `git add llp/ && git commit && git push -u origin integration/<slug>`.
-6. **Verify:** `git switch -` back; confirm the design's `@ref`s cover the targeted
-   requests (re-run the observe step — those requests must now read covered via the
-   integration branch). Never commit the design LLP to the target branch.
+1. **Read the full backlog:** `neutral backlog --json` — every request needing a
+   design (already excludes code- and in-flight-covered ones). Empty → no Designer work.
+2. **Plan the partition (one reasoning pass, the whole backlog in view).** Decide
+   how to split ALL backlog requests into change sets and how to order them. Produce
+   a plan: `[{ slug, covers: [<request numbers>], dependsOn: [<other slugs in this plan>] }, …]`.
+   - Each request goes in exactly one group. Group requests that are designed /
+     implementable together (shared `Systems:`, dense `Related:` links, a natural
+     feature boundary).
+   - Order via `dependsOn`: if group B builds on group A's code, B depends on A.
+     Keep groups independent where you can — independent groups run in parallel.
+   - You have full authority over grouping and ordering; this is the plan for the
+     entire backlog, decided with everything visible.
+   - `log` the plan (one line per group: slug, covered requests, dependsOn).
+3. **Mint every change set from the plan**, in `dependsOn` topological order,
+   assigning sequential LLP numbers across the batch. NNNN starts at one more than
+   the highest LLP number across `<DEFAULT>` and all `integration/*` branches
+   (`git ls-tree -r --name-only <ref> llp/`), incrementing per group. DEFAULT =
+   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`. For each group:
+   - `git switch -c integration/<slug> origin/<DEFAULT>`
+   - Mint `llp/NNNN-<slug>.design.md`: `**Type:** design`, `**Status:** Active`,
+     `**Systems:**`, `**Generated-by:** neutral`, `**Depends-on:** <predecessor slugs>`
+     (omit if none); body = the technical design with one `@ref LLP NNNN — <gloss>`
+     line per covered request (this is what satisfies coverage).
+   - `git add llp/ && git commit && git push -u origin integration/<slug>`, then
+     `git switch <DEFAULT>`.
+4. **Verify:** `neutral backlog` is now **empty** — every backlog request is covered
+   in-flight by one of the new designs. Never commit a design to the target branch.
 
 ## Stage: Impl-designer
 
@@ -98,7 +108,12 @@ Goal: every `design` LLP has a `plan` LLP.
 Goal: every task is a verified-merged commit on `integration/<slug>`.
 
 1. **Prune** stale worktrees: `git worktree prune`.
-2. Ensure `integration/<slug>` exists and is pushed.
+2. Ensure `integration/<slug>` exists and is **current**: if the change set's
+   `Depends-on:` predecessors are now merged to target (`changeSetMergedToTarget`),
+   first bring the updated target in — `git switch integration/<slug>`,
+   `git merge --no-edit origin/<DEFAULT>`, push — so tasks branch off code that
+   includes the predecessors. A change set whose predecessors are NOT yet merged is
+   blocked; skip it this tick.
 3. **Launch the implement-changeset Workflow** (the wave loop lives in its JS, not
    here). Invoke the **Workflow tool** with `scriptPath` =
    `<this skill's base directory>/implement-changeset.workflow.js` (the absolute
