@@ -100,9 +100,12 @@ Goal: every task is a verified-merged commit on `integration/<slug>`.
 1. **Prune** stale worktrees: `git worktree prune`.
 2. Ensure `integration/<slug>` exists and is pushed.
 3. **Launch the implement-changeset Workflow** (the wave loop lives in its JS, not
-   here). Invoke the **Workflow tool** with
-   `scriptPath: .claude/skills/neutral-reconcile/implement-changeset.workflow.js`
-   and `args: { repo: <abs repo path>, slug: "<slug>", integration: "integration/<slug>" }`.
+   here). Invoke the **Workflow tool** with `scriptPath` =
+   `<this skill's base directory>/implement-changeset.workflow.js` (the absolute
+   path shown when this skill loads — e.g.
+   `~/.claude/skills/neutral-reconcile/implement-changeset.workflow.js` when
+   installed user-level) and `args: { repo: <abs path of the target repo, from
+   git rev-parse --show-toplevel>, slug: "<slug>", integration: "integration/<slug>" }`.
 4. **Re-verify every merge from git** after it returns — the Workflow's report is a
    hint, not a conclusion. `neutral ready <slug> --json`: each task it
    claims done must be a real ancestor of `integration/<slug>`. Re-dispatch anything
