@@ -4,8 +4,7 @@
 // purely additive — reuses the engine, mutates nothing.
 // @ref LLP 0004 [implements] — the read-only single-LLP inspection command
 // @ref LLP 0005 [implements] — the design this realizes
-import { readLlps, isRequestType, isDesignType } from '../llp.js'
-import { coverage } from '../coverage.js'
+import { readLlps, isRequestType, isDesignType, isLive } from '../llp.js'
 import { readCodeRefs } from '../refs.js'
 import { padStart } from '../format.js'
 
@@ -42,29 +41,37 @@ export function llpReport(llp, llps, codeRefs) {
   out.push(`  path     ${llp.path}`)
 
   if (role === 'design') {
-    const covers = llp.refs.length
-      ? llp.refs.map(n => padStart(String(n), 4, '0')).join(' ')
-      : '(none)'
-    out.push(`  covers   ${covers}`)
+    // "covers" is about the requests this design realizes — not every @ref it
+    // makes (a plan @ref's its design too). Filter to request-type LLPs.
+    const requestNums = new Set(llps.filter(isRequestType).map(l => l.number))
+    const covers = llp.refs.filter(n => requestNums.has(n))
+    out.push(`  covers   ${covers.length ? covers.map(n => padStart(String(n), 4, '0')).join(' ') : '(none)'}`)
   } else if (role === 'request') {
     const by = coveredBy(llp, llps, codeRefs)
-    out.push(`  covered  ${by.length ? `by ${by.join(' ')}` : 'no — uncovered'}`)
+    if (by.length) out.push(`  covered  by ${by.join(' ')}`)
+    else if (isLive(llp)) out.push('  covered  no — uncovered (needs a design)')
+    else out.push(`  covered  not required (status ${llp.status})`)
   }
 
   return out.join('\n') + '\n'
 }
 
 /**
- * The design ids and/or `'code'` covering a request LLP (empty when uncovered).
+ * The design ids and/or `'code'` covering a request LLP, computed directly from
+ * the corpus so it is correct regardless of the request's liveness (the gated
+ * `coverage()` would omit a Draft request entirely and misreport it).
  * @param {Llp} llp
  * @param {Llp[]} llps
  * @param {Set<number>} codeRefs
  * @returns {string[]}
  */
 function coveredBy(llp, llps, codeRefs) {
-  const c = coverage(llps, codeRefs)
-  const hit = c.covered.find(x => x.llp.number === llp.number)
-  return hit ? hit.by : []
+  const by = llps
+    .filter(isDesignType)
+    .filter(d => d.refs.includes(llp.number))
+    .map(d => padStart(String(d.number), 4, '0'))
+  if (codeRefs.has(llp.number)) by.push('code')
+  return by
 }
 
 /**

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { llpCommand, llpRole } from '../src/commands/llp.js'
+import { llpCommand, llpRole, llpReport } from '../src/commands/llp.js'
 
 /**
  * Build a throwaway repo with an `llp/` corpus and return its path.
@@ -115,6 +115,53 @@ test('--json serializes the record plus role and coveredBy', () => {
     assert.equal(rec.type, 'spec')
     assert.equal(rec.role, 'request')
     assert.deepEqual(rec.coveredBy, ['0005'])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('a live request with no design or code reads as uncovered', () => {
+  const repo = fixtureRepo({ '0004-a-request.spec.md': SPEC })
+  try {
+    assert.match(capture(llpCommand, repo, ['4']).out, /uncovered/)
+    assert.deepEqual(JSON.parse(capture(llpCommand, repo, ['4', '--json']).out).coveredBy, [])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('a request covered only by code shows "code"', () => {
+  const base = { slug: '', title: 'r', status: 'Accepted', systems: [], author: '', date: '', path: '', refs: [], dependsOn: [] }
+  const req = { ...base, number: 7, type: 'spec' }
+  assert.match(llpReport(req, [req], new Set([7])), /covered\s+by code/)
+})
+
+test('a non-live (Draft) request covered by a design is NOT misreported uncovered', () => {
+  const draft = SPEC.replace('**Status:** Accepted', '**Status:** Draft')
+  const repo = fixtureRepo({ '0004-a-request.spec.md': draft, '0005-a-design.design.md': DESIGN })
+  try {
+    const { out } = capture(llpCommand, repo, ['4'])
+    assert.match(out, /covered\s+by 0005/)
+    assert.doesNotMatch(out, /uncovered/)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('a design "covers" only request refs, not refs to other designs', () => {
+  const plan = [
+    '# LLP 0006: A plan', '', '**Type:** plan', '**Status:** Active', '',
+    '@ref LLP 0004 — the request', '@ref LLP 0005 — the design it refines'
+  ].join('\n')
+  const repo = fixtureRepo({
+    '0004-a-request.spec.md': SPEC,
+    '0005-a-design.design.md': DESIGN,
+    '0006-a-plan.plan.md': plan
+  })
+  try {
+    const { out } = capture(llpCommand, repo, ['6'])
+    assert.match(out, /covers\s+0004/)   // the request it covers
+    assert.doesNotMatch(out, /0005/)     // NOT the design it merely @ref's
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }
