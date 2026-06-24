@@ -7,10 +7,10 @@ import { isAncestor, doneSetFromGit, branchExists, resolveRef, changeSetMergedTo
  * A fake `git` runner. `ancestors[a]` lists refs that `a` is an ancestor of;
  * `exist` lists refs that resolve; `trailers[ref]` is its `git log --grep` output.
  * Mirrors real exit codes: merge-base/rev-parse exit 1 on the negative case.
- * @param {{ancestors?: Record<string,string[]>, exist?: string[], trailers?: Record<string,string>}} cfg
+ * @param {{ancestors?: Record<string,string[]>, exist?: string[], tree?: Record<string,string[]>}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeGit({ ancestors = {}, exist = [], trailers = {} }) {
+function fakeGit({ ancestors = {}, exist = [], tree = {} }) {
   return async (_cmd, args) => {
     if (args[0] === 'rev-parse' && args[1] === '--verify') {
       const ref = args[args.length - 1].replace('^{commit}', '')
@@ -22,8 +22,8 @@ function fakeGit({ ancestors = {}, exist = [], trailers = {} }) {
       if ((ancestors[a] || []).includes(b)) return ''
       const e = new Error('not ancestor'); /** @type {any} */ (e).code = 1; throw e
     }
-    if (args[0] === 'log') {
-      return trailers[args[1]] || ''
+    if (args[0] === 'ls-tree') {
+      return (tree[args[3]] || []).join('\n') + '\n'
     }
     throw new Error('unexpected git ' + args.join(' '))
   }
@@ -67,12 +67,13 @@ test('doneSetFromGit returns empty when the integration branch does not exist ye
   assert.deepEqual([...await doneSetFromGit('/r', 'integration', tasks, exec)], [])
 })
 
-test('changeSetMergedToTarget is true only when the trailer commit is on target', async () => {
-  const exec = fakeGit({ exist: ['origin/main'], trailers: { 'origin/main': 'abc123\n' } })
-  assert.equal(await changeSetMergedToTarget('/r', 'auth', 'origin/main', exec), true)
+test('changeSetMergedToTarget is true only when the design LLP is on target', async () => {
+  const merged = fakeGit({ exist: ['origin/main'], tree: { 'origin/main': ['llp/0004-auth.spec.md', 'llp/0005-auth.design.md'] } })
+  assert.equal(await changeSetMergedToTarget('/r', 'auth', 'origin/main', merged), true)
 
-  const none = fakeGit({ exist: ['origin/main'] })
-  assert.equal(await changeSetMergedToTarget('/r', 'auth', 'origin/main', none), false)
+  // design not yet on target (still only on the integration branch)
+  const pending = fakeGit({ exist: ['origin/main'], tree: { 'origin/main': ['llp/0004-auth.spec.md'] } })
+  assert.equal(await changeSetMergedToTarget('/r', 'auth', 'origin/main', pending), false)
 })
 
 test('a non-1 git error propagates (we do not silently treat it as "not merged")', async () => {

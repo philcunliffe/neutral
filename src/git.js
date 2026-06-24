@@ -138,8 +138,10 @@ export async function integrationBranches(repo, exec = run) {
 }
 
 /**
- * A change set counts as merged to target only when its squash commit — carrying a
- * `Change-Set: <slug>` trailer — is present on the (fetched) target branch.
+ * A change set counts as merged to target when its `design` LLP is present on the
+ * (fetched) target branch. This is git-native and robust to how the PR was merged
+ * (squash, merge commit, or rebase) — unlike a commit-message trailer, which a
+ * merge commit or GitHub's default squash message can silently drop.
  * @param {string} repo
  * @param {string} slug
  * @param {string} targetRef  e.g. `origin/main`
@@ -148,8 +150,14 @@ export async function integrationBranches(repo, exec = run) {
  */
 export async function changeSetMergedToTarget(repo, slug, targetRef, exec = run) {
   if (!(await branchExists(repo, targetRef, exec))) return false
-  const out = await exec('git', ['log', targetRef, `--grep=Change-Set: ${slug}`, '--format=%H', '-n', '1'], repo)
-  return out.trim().length > 0
+  let listing
+  try {
+    listing = await exec('git', ['ls-tree', '-r', '--name-only', targetRef, 'llp/'], repo)
+  } catch {
+    return false
+  }
+  const re = new RegExp(`-${slug}\\.design\\.md$`)
+  return listing.split('\n').some(f => re.test(f.trim()))
 }
 
 /**

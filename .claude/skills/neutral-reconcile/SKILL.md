@@ -131,11 +131,12 @@ Goal: the change-set PR passes review, then holds for a human.
 
 ## Stage: Handoff (after a human merges)
 
-A predecessor change set is **merged** only when, after `git fetch`, its PR shows
-`MERGED` (`gh pr view <N> --json state`) AND its `Change-Set:` trailer commit is an
-ancestor of `origin/<DEFAULT>` (`node bin/neutral.js`'s `changeSetMergedToTarget`).
-Only then may a change set whose `Depends-on:` named it begin (its Designer/Implement
-stages run off the now-updated target). Delete the merged integration branch.
+A predecessor change set is **merged** only when, after `git fetch`, its `design`
+LLP is present on `origin/<DEFAULT>` (`changeSetMergedToTarget` in `src/git.js` —
+robust to squash vs merge commit, unlike a body trailer). Corroborate with
+`gh pr view <N> --json state` = `MERGED` if the PR is known. Only then may a change
+set whose `Depends-on:` named it begin (its stages run off the now-updated target).
+Delete the merged integration branch (local + `git push origin --delete`).
 
 ## Invariants
 
