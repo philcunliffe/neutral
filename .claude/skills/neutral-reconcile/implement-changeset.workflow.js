@@ -58,16 +58,21 @@ const MERGE_SCHEMA = {
 const DERIVE_READY = `In the neutral repo at ${repo}: run \`git fetch --prune\` then \`node bin/neutral.js ready ${slug} --json\`. Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth.`
 
 function implPrompt(t) {
-  return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. You are in an isolated git worktree — work only here.
+  return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. Isolate your work in your OWN git worktree — never edit the main checkout.
 
-1. \`git fetch --prune\`.
-2. Idempotent branch: if \`origin/${t.branch}\` exists, base your work on it (\`git switch -c ${t.branch} origin/${t.branch}\`) and CONTINUE — do NOT start over. Otherwise create it off the integration branch: \`git switch -c ${t.branch} origin/${integration}\`.
-3. On this branch read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs it derives from. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Match the repo's style (AGENTS.md: ESM, no semicolons, JSDoc types).
-4. Add/adjust tests. If \`node_modules\` is missing in this worktree, run \`npm install\` first (typecheck needs it). Run \`node --test\` and \`npm run typecheck\`. BOTH must pass.
-5. Commit (message ending with a \`Task-Id: ${t.id}\` trailer). \`git push -u origin ${t.branch}\`.
-6. Ensure a PR into ${integration}: reuse \`gh pr list --head ${t.branch}\` if present, else \`gh pr create --base ${integration} --head ${t.branch} --title "${t.id}: <summary>" --body "Task-Id: ${t.id}"\`.
+1. \`cd ${repo} && git fetch --prune\`.
+2. Create a private worktree + branch (idempotent):
+   - \`WT=$(mktemp -d)\`
+   - If \`git rev-parse --verify origin/${t.branch}\` succeeds (work already started), resume it: \`git worktree add "$WT" -B ${t.branch} origin/${t.branch}\`.
+   - Otherwise start fresh off the integration branch: \`git worktree add "$WT" -b ${t.branch} origin/${integration}\`.
+   - \`cd "$WT"\` — do ALL work here.
+3. Read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Follow AGENTS.md style (ESM, no semicolons, JSDoc types).
+4. \`npm install\` (the worktree has no node_modules; typecheck needs it). Then \`node --test\` AND \`npm run typecheck\` — both must pass.
+5. \`git add -A && git commit\` (message ending with a \`Task-Id: ${t.id}\` trailer). \`git push -u origin ${t.branch}\`.
+6. Ensure a PR into ${integration}: \`gh pr list --head ${t.branch}\` (reuse) else \`gh pr create --base ${integration} --head ${t.branch} --title "${t.id}: <summary>" --body "Implements task ${t.id} of ${slug}.\\n\\nTask-Id: ${t.id}"\`.
+7. Clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.
 
-Return: id="${t.id}", branch="${t.branch}", prNumber, headSha (\`git rev-parse HEAD\`), testsPass (true ONLY if tests AND typecheck passed). If you cannot make them pass, return testsPass=false with a short notes explaining why — do not fake success.`
+Return: id="${t.id}", branch="${t.branch}", prNumber, headSha (\`git rev-parse origin/${t.branch}\`), testsPass (true ONLY if tests AND typecheck passed). If you cannot make them pass, return testsPass=false with short notes — never fake success.`
 }
 
 function mergePrompt(built) {
@@ -84,7 +89,7 @@ For EACH task branch:
    c. content: for every file in \`git diff --name-only origin/<task-branch>~1 origin/<task-branch>\` (the task's own changes), \`git diff origin/<task-branch> HEAD -- <file>\` is EMPTY — the task's files now match the task tip on integration.
 3. Only then proceed to the next task.
 
-After all verified merges: \`git push origin HEAD:${integration.replace(/^origin\\//, '')}\`.
+After all verified merges: \`git push origin HEAD:${integration}\`.
 
 Return: merged=[{id, sha (the merge commit)}] for each verified-and-pushed task; failed=[{id, reason}] otherwise. Never report a merge you did not verify and push — a fabricated merge corrupts the change set.`
 }
@@ -108,7 +113,7 @@ while (guard++ < 64) {
   log(`implement ${slug}: wave of ${r.ready.length} (done=${r.done.length})`)
 
   const built = (await parallel(r.ready.map(t => () =>
-    agent(implPrompt(t), { label: `impl:${t.id}`, phase: 'Implement', isolation: 'worktree', schema: IMPL_SCHEMA })
+    agent(implPrompt(t), { label: `impl:${t.id}`, phase: 'Implement', schema: IMPL_SCHEMA })
   ))).filter(Boolean)
 
   const ok = built.filter(b => b.testsPass)
