@@ -1,24 +1,17 @@
 // @ts-check
-// Parse the LLP corpus under <repo>/llp. Everything in the pipeline is an LLP;
-// the `type` field carries its ROLE in the flow: request | design | background.
+// Parse the LLP corpus. Everything in the pipeline is an LLP; the `type` field
+// carries its ROLE in the flow (request | design | background) — and the mapping
+// is per-repo configurable, so neutral fits existing projects.
 // @ref LLP 0003#types-and-roles — roles, eligibility, status normalization
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { extractRefs } from './refs.js'
+import { DEFAULT_CONFIG } from './config.js'
 
-/** @import { Llp } from './types.d.ts' */
+/** @import { Llp, NeutralConfig } from './types.d.ts' */
 
 // `NNNN-<slug>.<type>.md`
 const FILE_RE = /^(\d{4})-(.+)\.([a-z0-9]+)\.md$/
-
-/** Types that REQUEST work and therefore need a design covering them. */
-export const REQUEST_TYPES = new Set(['spec', 'rfc', 'issue'])
-
-/** Types that ARE designs — they provide coverage and never need their own. */
-export const DESIGN_TYPES = new Set(['design', 'plan'])
-
-/** Statuses that mean an LLP has left Draft and is still live. */
-export const LIVE_STATUSES = new Set(['accepted', 'active'])
 
 /**
  * @param {string} dir
@@ -73,7 +66,6 @@ export function normalizeStatus(raw) {
 
 /**
  * Pure parse of one LLP file (no fs). Returns null if the name isn't `NNNN-*.md`.
- * Caller sets `.path`.
  * @param {string} name  the file basename
  * @param {string} body
  * @param {boolean} [tombstoned]
@@ -104,15 +96,15 @@ export function parseLlp(name, body, tombstoned = false) {
 }
 
 /**
- * Read and parse every `NNNN-*.md` under <repo>/llp (recursively). Files under
- * `llp/tombstones/` are forced to `Tombstoned`.
+ * Read and parse every `NNNN-*.md` under the configured LLP directory.
  * @param {string} repo
+ * @param {NeutralConfig} [config]
  * @returns {Llp[]}
  */
-export function readLlps(repo) {
+export function readLlps(repo, config = DEFAULT_CONFIG) {
   /** @type {Llp[]} */
   const llps = []
-  for (const path of walk(join(repo, 'llp'))) {
+  for (const path of walk(join(repo, config.llpDir))) {
     const llp = parseLlp(basename(path), readFileSync(path, 'utf8'), path.includes('/tombstones/'))
     if (!llp) continue
     llp.path = path
@@ -122,26 +114,34 @@ export function readLlps(repo) {
   return llps
 }
 
-/** @param {Llp} llp @returns {boolean} */
-export function isRequestType(llp) {
-  return REQUEST_TYPES.has(llp.type.toLowerCase())
+/** @param {Llp} llp @param {NeutralConfig} [config] @returns {boolean} */
+export function isRequestType(llp, config = DEFAULT_CONFIG) {
+  return config.roles.request.includes(llp.type.toLowerCase())
 }
 
-/** @param {Llp} llp @returns {boolean} */
-export function isDesignType(llp) {
-  return DESIGN_TYPES.has(llp.type.toLowerCase())
+/** @param {Llp} llp @param {NeutralConfig} [config] @returns {boolean} */
+export function isDesignType(llp, config = DEFAULT_CONFIG) {
+  return config.roles.design.includes(llp.type.toLowerCase())
 }
 
-/** @param {Llp} llp @returns {boolean} */
-export function isLive(llp) {
-  return LIVE_STATUSES.has(llp.status.toLowerCase())
+/** @param {Llp} llp @param {NeutralConfig} [config] @returns {boolean} */
+export function isLive(llp, config = DEFAULT_CONFIG) {
+  return config.liveStatuses.includes(llp.status.toLowerCase())
 }
 
 /**
  * A live request that must be covered by a design (or by code).
- * @param {Llp} llp
- * @returns {boolean}
+ * @param {Llp} llp @param {NeutralConfig} [config] @returns {boolean}
  */
-export function needsCoverage(llp) {
-  return isRequestType(llp) && isLive(llp)
+export function needsCoverage(llp, config = DEFAULT_CONFIG) {
+  return isRequestType(llp, config) && isLive(llp, config)
+}
+
+/**
+ * A design LLP that neutral itself minted — the pipeline stages (impl-design,
+ * implement) act only on these, never on the project's own design/plan docs.
+ * @param {Llp} llp @param {NeutralConfig} [config] @returns {boolean}
+ */
+export function isNeutralDesign(llp, config = DEFAULT_CONFIG) {
+  return isDesignType(llp, config) && llp.generatedBy === 'neutral'
 }

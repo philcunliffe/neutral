@@ -1,9 +1,10 @@
 // @ts-check
 // `neutral ready <changeset-slug> [--json]` — the unblocked-open task queue for a
-// change set, derived from the plan LLP's tasks + git ground truth.
+// change set, derived from its plan LLP's `## Tasks` block + git ground truth.
 // @ref LLP 0003#ready-queue-the-unblocked-open-list
 import { readFileSync } from 'node:fs'
 import { readLlps } from '../llp.js'
+import { loadConfig } from '../config.js'
 import { parseTasks } from '../tasks.js'
 import { doneSetFromGit } from '../git.js'
 import { readyTasks } from '../ready.js'
@@ -31,9 +32,12 @@ export async function readyCommand(repo, args) {
     process.stderr.write('usage: neutral ready <changeset-slug> [--json]\n')
     return 2
   }
-  const plan = readLlps(repo).find(l => l.type === 'plan' && l.slug === slug)
+  // The plan is the LLP for this change set that carries a `## Tasks` block.
+  const plan = readLlps(repo, loadConfig(repo))
+    .filter(l => l.slug === slug)
+    .find(l => /^##\s+Tasks\s*$/m.test(readFileSync(l.path, 'utf8')))
   if (!plan) {
-    process.stderr.write(`neutral: no plan LLP for change set "${slug}"\n`)
+    process.stderr.write(`neutral: no plan LLP (with a ## Tasks block) for change set "${slug}"\n`)
     return 2
   }
   const tasks = parseTasks(readFileSync(plan.path, 'utf8'))

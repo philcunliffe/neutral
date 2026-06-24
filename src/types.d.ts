@@ -49,8 +49,26 @@ export interface ReadyResult {
   done: Task[]
 }
 
+export interface NeutralConfig {
+  /** Directory holding the LLP corpus (relative to repo root). */
+  llpDir: string
+  /** Source-code discovery for `@ref` coverage. */
+  code: {
+    exts: string[]
+    exclude: string[]
+  }
+  /** Type -> pipeline role mapping. */
+  roles: {
+    request: string[]
+    design: string[]
+  }
+  /** Statuses that count as live (left Draft). */
+  liveStatuses: string[]
+}
+
 export interface World {
   repo: string
+  config: NeutralConfig
   llps: Llp[]
   coverage: CoverageResult
 }

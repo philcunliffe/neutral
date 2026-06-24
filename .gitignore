@@ -1,4 +1,6 @@
 node_modules/
-.neutral/
+.neutral/*
+!.neutral/config.json
+!.neutral/baseline.json
 *.log
 .DS_Store

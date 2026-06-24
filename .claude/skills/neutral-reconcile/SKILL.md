@@ -43,12 +43,21 @@ verifies it. (See LLP 0001/0002.)
 2. **Change set with an open, reviewed-passing PR not yet held** → flip to ready + HOLD.
 3. **Change set with an open PR needing review/fix** → Review stage.
 4. **Change set with a `plan` but unmerged tasks** → Implement stage.
-5. **`design` LLP without a `plan`** → Impl-designer stage.
+5. **A neutral-minted `design` LLP** (`**Generated-by:** neutral`) **without a `plan`** → Impl-designer stage.
 6. **Backlog non-empty** (`neutral backlog` exits 1) → Designer stage.
 
 Advance only the single highest-priority gap per tick. Within a stage, drain: the
 Designer plans + mints the WHOLE backlog as ordered change sets in one pass; the
 Implementer drains all task waves of one change set.
+
+**Scope (coexisting with an existing LLP project).** The pipeline stages
+(Impl-designer, Implement) act ONLY on designs neutral itself minted
+(`Generated-by: neutral`); a project's own `design`/`plan`/`rfc` docs are left
+alone — they still count for coverage, so neutral won't re-design what they
+address. `neutral backlog` is already config- and baseline-aware. On a brownfield
+repo, run **`neutral init`** first (scaffolds `.neutral/config.json` + baseline and
+prints what neutral would drive) and confirm the backlog is only the new work you
+want — see LLP 0007.
 
 ## Stage: Designer
 

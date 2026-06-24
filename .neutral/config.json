@@ -1,0 +1,70 @@
+{
+  "llpDir": "llp",
+  "code": {
+    "exts": [
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".jsx",
+      ".ts",
+      ".tsx",
+      ".py",
+      ".go",
+      ".rs",
+      ".rb",
+      ".java",
+      ".kt",
+      ".scala",
+      ".c",
+      ".h",
+      ".cc",
+      ".cpp",
+      ".hpp",
+      ".cs",
+      ".php",
+      ".swift",
+      ".sh",
+      ".bash",
+      ".lua",
+      ".ex",
+      ".exs",
+      ".clj",
+      ".cljs",
+      ".dart",
+      ".vue",
+      ".svelte",
+      ".sql",
+      ".graphql"
+    ],
+    "exclude": [
+      "node_modules",
+      ".git",
+      "dist",
+      "build",
+      "out",
+      "vendor",
+      "target",
+      ".next",
+      "coverage",
+      ".venv",
+      "venv",
+      "__pycache__",
+      ".neutral"
+    ]
+  },
+  "roles": {
+    "request": [
+      "spec",
+      "rfc",
+      "issue"
+    ],
+    "design": [
+      "design",
+      "plan"
+    ]
+  },
+  "liveStatuses": [
+    "accepted",
+    "active"
+  ]
+}

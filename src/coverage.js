@@ -1,19 +1,21 @@
 // @ts-check
 // Coverage invariant: every live REQUEST LLP must be @ref'd by a DESIGN LLP
 // (planned) or by code (already realized). Uncovered requests are the Designer
-// reconciler's backlog. Design LLPs never need coverage themselves — no regress.
-// @ref LLP 0003#coverage-invariant [implements]
+// reconciler's backlog. Roles are config-driven so this fits any project.
+// @ref LLP 0003#coverage-invariant [implements] — inverse-of-ref-check coverage
 import { needsCoverage, isDesignType } from './llp.js'
+import { DEFAULT_CONFIG } from './config.js'
 
-/** @import { Llp, CoverageResult } from './types.d.ts' */
+/** @import { Llp, CoverageResult, NeutralConfig } from './types.d.ts' */
 
 /**
  * @param {Llp[]} llps
  * @param {Set<number>} [codeRefs]  LLP numbers referenced by source (realized)
+ * @param {NeutralConfig} [config]
  * @returns {CoverageResult}
  */
-export function coverage(llps, codeRefs = new Set()) {
-  const designs = llps.filter(isDesignType)
+export function coverage(llps, codeRefs = new Set(), config = DEFAULT_CONFIG) {
+  const designs = llps.filter(l => isDesignType(l, config))
 
   /** @type {Map<number, string[]>} request LLP number -> design LLP ids covering it */
   const refMap = new Map()
@@ -26,7 +28,7 @@ export function coverage(llps, codeRefs = new Set()) {
     }
   }
 
-  const eligible = llps.filter(needsCoverage)
+  const eligible = llps.filter(l => needsCoverage(l, config))
   /** @type {CoverageResult['covered']} */
   const covered = []
   /** @type {Llp[]} */

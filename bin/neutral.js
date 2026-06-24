@@ -6,13 +6,15 @@ import { readyCommand } from '../src/commands/ready.js'
 import { coverageCommand } from '../src/commands/coverage.js'
 import { backlogCommand } from '../src/commands/backlog.js'
 import { llpCommand } from '../src/commands/llp.js'
+import { initCommand } from '../src/commands/init.js'
 
 const USAGE = `neutral — declarative reconcilers for the LLP -> PR pipeline
 
 usage:
+  neutral init                   scaffold .neutral/ config + baseline; report the backlog
   neutral status [--json]        corpus by stage, coverage gap, designs
   neutral coverage [--json]      working-tree coverage as an exit code (0 covered, 1 not)
-  neutral backlog [--json]       requests needing a design, excluding in-flight ones
+  neutral backlog [--json]       requests needing a design (excl. in-flight + baselined)
   neutral ready <slug> [--json]  the unblocked-open task queue for a change set
   neutral llp <number> [--json]  inspect one LLP: metadata, role, coverage
   neutral help                   this message
@@ -27,6 +29,7 @@ async function main(argv) {
   const repo = process.cwd()
 
   switch (cmd) {
+    case 'init': return initCommand(repo, rest)
     case 'status': return statusCommand(repo, rest)
     case 'coverage': return coverageCommand(repo, rest)
     case 'backlog': return backlogCommand(repo, rest)
