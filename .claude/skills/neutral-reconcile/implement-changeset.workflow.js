@@ -55,7 +55,7 @@ const MERGE_SCHEMA = {
   }
 }
 
-const DERIVE_READY = `In the neutral repo at ${repo}: run \`git fetch --prune\` then \`node bin/neutral.js ready ${slug} --json\`. Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth.`
+const DERIVE_READY = `In the repo at ${repo}: run \`git fetch --prune\` then \`neutral ready ${slug} --json\` (the global \`neutral\` CLI reads this repo via cwd). Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth.`
 
 function implPrompt(t) {
   return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. Isolate your work in your OWN git worktree — never edit the main checkout.
@@ -66,8 +66,8 @@ function implPrompt(t) {
    - If \`git rev-parse --verify origin/${t.branch}\` succeeds (work already started), resume it: \`git worktree add "$WT" -B ${t.branch} origin/${t.branch}\`.
    - Otherwise start fresh off the integration branch: \`git worktree add "$WT" -b ${t.branch} origin/${integration}\`.
    - \`cd "$WT"\` — do ALL work here.
-3. Read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Follow AGENTS.md style (ESM, no semicolons, JSDoc types).
-4. \`npm install\` (the worktree has no node_modules; typecheck needs it). Then \`node --test\` AND \`npm run typecheck\` — both must pass.
+3. Read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Follow the repo's own conventions (AGENTS.md / CLAUDE.md / CONTRIBUTING if present).
+4. Run the repo's checks before committing — DISCOVER them (package.json \`scripts\` such as test/typecheck/lint/build, a Makefile, or the conventions file). Install deps first if this fresh worktree needs them (e.g. \`npm install\`). Run at least the test suite, plus typecheck/lint/build if the repo defines them; ALL must pass. If the repo has no automated tests, say so explicitly in notes.
 5. \`git add -A && git commit\` (message ending with a \`Task-Id: ${t.id}\` trailer). \`git push -u origin ${t.branch}\`.
 6. Ensure a PR into ${integration}: \`gh pr list --head ${t.branch}\` (reuse) else \`gh pr create --base ${integration} --head ${t.branch} --title "${t.id}: <summary>" --body "Implements task ${t.id} of ${slug}.\\n\\nTask-Id: ${t.id}"\`.
 7. Clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.

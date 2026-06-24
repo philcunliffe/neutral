@@ -16,7 +16,7 @@ stored. Designed to be driven by `/loop /neutral-reconcile`.
 **Never trust a claim of "done" — re-derive it from git.** A task is merged only
 when `git merge-base --is-ancestor` says so; a change set is merged only when its
 PR shows merged and its docs are on the target branch. The Node CLI
-(`node bin/neutral.js …`) and git are the authority; agents do work, the tick
+(`neutral …`) and git are the authority; agents do work, the tick
 verifies it. (See LLP 0001/0002.)
 
 ## Each tick
@@ -24,7 +24,7 @@ verifies it. (See LLP 0001/0002.)
 1. **Fetch.** `git fetch --prune`. Without this, a teammate's push and the human's
    merge are invisible and the loop looks wedged.
 2. **Observe.**
-   - `node bin/neutral.js status --json` → corpus + coverage (working tree / `main`).
+   - `neutral status --json` → corpus + coverage (working tree / `main`).
    - `git for-each-ref --format='%(refname:short)' refs/heads/integration` → in-flight change sets.
    - For each `integration/<slug>`: read its `design`/`plan` LLPs
      (`git show integration/<slug>:llp/…`) and its task state (`neutral ready <slug> --json`).
@@ -53,7 +53,7 @@ Advance only the single highest-priority gap per tick. Within a stage, drain
 
 Goal: every live request is `@ref`'d by a `design` LLP.
 
-1. `node bin/neutral.js backlog --json` — the authoritative list of requests that
+1. `neutral backlog --json` — the authoritative list of requests that
    need a design (it already excludes requests covered by code or by an in-flight
    `integration/*` design). If empty, there is no Designer work this tick.
 2. **Decide grouping + order.** Group requests that are designed/implementable
@@ -61,7 +61,7 @@ Goal: every live request is `@ref`'d by a `design` LLP.
    follow others, note them for a `Depends-on:` header. You have full authority over
    which requests to group and in what order.
 3. **Create the change-set branch:** `git switch -c integration/<slug> origin/<DEFAULT>`
-   (DEFAULT = `node bin/neutral.js` target, i.e. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
+   (DEFAULT = `neutral` target, i.e. `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
 4. **Mint the `design` LLP** at `llp/NNNN-<slug>.design.md`. NNNN = one more than the
    highest LLP number across `main` and all `integration/*` branches
    (`git ls-tree -r --name-only <ref> llp/`). Header: `**Type:** design`,
@@ -90,7 +90,7 @@ Goal: every `design` LLP has a `plan` LLP.
    ```
    Keep tasks small and independently mergeable; encode real code dependencies in `deps`.
 3. **Commit + push** the plan to `integration/<slug>`.
-4. **Verify:** `node bin/neutral.js ready <slug> --json` parses and lists the tasks
+4. **Verify:** `neutral ready <slug> --json` parses and lists the tasks
    (all ready/blocked, none done). `git switch -`.
 
 ## Stage: Implement
@@ -104,7 +104,7 @@ Goal: every task is a verified-merged commit on `integration/<slug>`.
    `scriptPath: .claude/skills/neutral-reconcile/implement-changeset.workflow.js`
    and `args: { repo: <abs repo path>, slug: "<slug>", integration: "integration/<slug>" }`.
 4. **Re-verify every merge from git** after it returns — the Workflow's report is a
-   hint, not a conclusion. `node bin/neutral.js ready <slug> --json`: each task it
+   hint, not a conclusion. `neutral ready <slug> --json`: each task it
    claims done must be a real ancestor of `integration/<slug>`. Re-dispatch anything
    claimed-but-not-landed (the Workflow is idempotent). After **K=3** failed
    attempts on a task, stop, label its PR `neutral:stuck`, comment why, and surface
@@ -152,7 +152,7 @@ Delete the merged integration branch (local + `git push origin --delete`).
 ## Quick start (run one tick by hand)
 
 ```sh
-node bin/neutral.js coverage        # is there a backlog?
-node bin/neutral.js status --json   # observe
+neutral coverage        # is there a backlog?
+neutral status --json   # observe
 # then follow the highest-priority stage above for one change set.
 ```
