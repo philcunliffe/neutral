@@ -5,6 +5,7 @@ import { statusCommand } from '../src/commands/status.js'
 import { readyCommand } from '../src/commands/ready.js'
 import { coverageCommand } from '../src/commands/coverage.js'
 import { backlogCommand } from '../src/commands/backlog.js'
+import { llpCommand } from '../src/commands/llp.js'
 
 const USAGE = `neutral — declarative reconcilers for the LLP -> PR pipeline
 
@@ -13,6 +14,7 @@ usage:
   neutral coverage [--json]      working-tree coverage as an exit code (0 covered, 1 not)
   neutral backlog [--json]       requests needing a design, excluding in-flight ones
   neutral ready <slug> [--json]  the unblocked-open task queue for a change set
+  neutral llp <number> [--json]  inspect one LLP: metadata, role, coverage
   neutral help                   this message
 `
 
@@ -29,6 +31,7 @@ async function main(argv) {
     case 'coverage': return coverageCommand(repo, rest)
     case 'backlog': return backlogCommand(repo, rest)
     case 'ready': return readyCommand(repo, rest)
+    case 'llp': return llpCommand(repo, rest)
     case 'help':
     case '--help':
     case '-h':
