@@ -7,6 +7,16 @@ import { join } from 'node:path'
 
 /** @import { NeutralConfig } from './types.d.ts' */
 
+// Maintenance-family constants (LLP 0008/0009). The labels are the authorization
+// gate: neutral acts on an artifact it did not mint only when a human delegated it.
+// @ref LLP 0009#the-authorization-gate [implements]
+export const FIX_LABEL = 'neutral:fix'      // a human delegates an issue for a fix attempt
+export const STUCK_LABEL = 'neutral:stuck'  // neutral sets this when it cannot complete one
+// The reconcilePR review rung's fix-loop bound: past this many rounds with the head
+// still unreviewed, the PR is surfaced as stuck rather than churned forever.
+// @ref LLP 0009#pr-health-reconciler [implements] — N=2 fix rounds
+export const DEFAULT_REVIEW_ROUNDS = 2
+
 /** @type {NeutralConfig} */
 export const DEFAULT_CONFIG = {
   // Where the LLP corpus lives.

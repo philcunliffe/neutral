@@ -121,6 +121,25 @@ export async function defaultBranch(repo, exec = run) {
 }
 
 /**
+ * Branch short-names under `<prefix>` (the path component before the first `/`),
+ * local and remote, deduped with the `origin/` stripped. `for-each-ref` matches a
+ * pattern at `/` boundaries, so a prefix like `fix` returns every `fix/*` branch.
+ * @param {string} repo
+ * @param {string} prefix
+ * @param {typeof run} [exec]
+ * @returns {Promise<string[]>}
+ */
+export async function branchesWithPrefix(repo, prefix, exec = run) {
+  const out = await exec('git', ['for-each-ref', '--format=%(refname:short)', `refs/heads/${prefix}`, `refs/remotes/origin/${prefix}`], repo)
+  /** @type {Set<string>} */
+  const set = new Set()
+  for (const line of out.split('\n').map(s => s.trim()).filter(Boolean)) {
+    set.add(line.replace(/^origin\//, ''))
+  }
+  return [...set]
+}
+
+/**
  * The `integration/*` change-set branch names, local and remote, deduped to the
  * `integration/<slug>` short form.
  * @param {string} repo
@@ -128,13 +147,7 @@ export async function defaultBranch(repo, exec = run) {
  * @returns {Promise<string[]>}
  */
 export async function integrationBranches(repo, exec = run) {
-  const out = await exec('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/integration', 'refs/remotes/origin/integration'], repo)
-  /** @type {Set<string>} */
-  const set = new Set()
-  for (const line of out.split('\n').map(s => s.trim()).filter(Boolean)) {
-    set.add(line.replace(/^origin\//, ''))
-  }
-  return [...set]
+  return branchesWithPrefix(repo, 'integration', exec)
 }
 
 /**

@@ -72,3 +72,45 @@ export interface World {
   llps: Llp[]
   coverage: CoverageResult
 }
+
+/**
+ * A PR's observed health from `gh pr view --json` — GitHub's own computation, read
+ * fresh against the current head SHA (LLP 0002/0009), not the acting agent's claim.
+ */
+export interface PrObservation {
+  number: number
+  /** headRefName — the PR's source branch. */
+  head: string
+  /** baseRefName — the PR's target branch. */
+  base: string
+  isDraft: boolean
+  /** MERGEABLE | CONFLICTING | UNKNOWN. */
+  mergeable: string
+  /** BEHIND | DIRTY | CLEAN | BLOCKED | UNSTABLE | UNKNOWN | DRAFT | HAS_HOOKS. */
+  mergeStateStatus: string
+  /** The raw statusCheckRollup array; rollupConclusion() reduces it. */
+  rollup: any[]
+  /** headRefOid — every downstream fact (green, reviewed) is keyed to this. */
+  headSha: string
+  /** PR body — carries the `<!-- neutral-review: <sha> -->` markers. */
+  body: string
+}
+
+/** The single rung action reconcilePR takes on a PR this tick (LLP 0009). */
+export interface RungDecision {
+  /** mergeable | green | reviewed | terminal. */
+  rung: string
+  /** wait | merge-base | resolve-conflict | fix-ci | review | stuck | ready-hold | held. */
+  action: string
+  reason: string
+}
+
+/** A `neutral:fix` issue's fix-attempt state, re-derived from ground truth (LLP 0009). */
+export interface IssueFixState {
+  number: number
+  title: string
+  /** needs-fix | attempt-exists | stuck. */
+  state: 'needs-fix' | 'attempt-exists' | 'stuck'
+  /** how an attempt was found: `branch:fix/issue-N` | `pr:#M` | `label:neutral:stuck`. */
+  via?: string
+}

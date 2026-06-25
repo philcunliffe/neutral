@@ -6,16 +6,21 @@
 **Role:** Root
 **Author:** Phil
 **Date:** 2026-06-23
-**Related:** 0001, 0002, 0003
+**Related:** 0001, 0002, 0003, 0008, 0010
 
 ## Summary
 
 Neutral is a set of **declarative reconcilers** that take LLPs which have left
 Draft and drive them, together, through technical design → implementation design
-→ task fan-out → integration PR → review → fix, converging a repository toward a
-desired **base state**. Each reconciler holds an invariant and closes the gap
-from **observed git/file ground truth**, never a self-reported ledger. The whole
-system is the Kubernetes-controller pattern applied to the LLP → PR pipeline.
+→ task fan-out → integration PR → review → fix, converging a repository toward
+**neutral state** — the resting point where every gap neutral can close
+*autonomously* is closed: no uncovered request LLP, no `neutral:fix` issue without
+a fix attempt, no in-scope PR left unmergeable, failing, or unreviewed (see
+[LLP 0008](0008-neutral-state-and-reconciler-families.decision.md)). Each
+reconciler holds an invariant and closes the gap from **observed git/GitHub ground
+truth**, never a self-reported ledger. The system is the Kubernetes-controller
+pattern applied across two reconciler families — the LLP→PR **pipeline** and
+PR/issue **maintenance**.
 
 ## Motivation
 
@@ -30,18 +35,31 @@ imperative prose drifts from reality*. Neutral removes the class of bug by
 construction: state is **derived**, and every claim is **verified against ground
 truth** before it counts.
 
-## The pipeline
+## The reconcilers
 
-Five reconcilers, each with a base-state invariant. A "gap" is any place the
-observed world violates the invariant; reconciling closes it.
+Each reconciler holds a base-state invariant; a "gap" is any place the observed
+world violates it. They fall into two **families** (LLP 0008) over one shared
+PR-health spine.
+
+**Pipeline family** — intake is a request LLP, output an integration PR:
 
 | Reconciler | System | Base state (invariant) |
 |---|---|---|
 | **Designer** | `Designer` | every live request LLP is `@ref`'d by a design LLP |
 | **Impl-designer** | `Designer` | every `design` LLP has an implementation `plan` LLP |
-| **Implementer** | `Implementer` | every task is a verified-merged commit on its integration branch |
-| **PR** | `Implementer` | every change set has an open integration PR |
-| **Reviewer** | `Reviewer` | every integration PR has a passing review (or is held for a human) |
+| **Implementer** | `Engineer` | every task is a verified-merged commit on its integration branch, and the change set has an open PR |
+
+**Maintenance family** — intake is a GitHub artifact a human labelled (LLP 0009):
+
+| Reconciler | System | Base state (invariant) |
+|---|---|---|
+| **Issue-fix** | `Engineer` | every `neutral:fix` issue has a fix attempt (a `Fixes #N` PR, or `neutral:stuck`) |
+
+**Shared spine** — `reconcilePR`, over every in-scope open PR (integration or fix):
+
+| Reconciler | System | Base state (invariant) |
+|---|---|---|
+| **PR-health** | `Engineer`, `Reviewer` | mergeable ∧ green ∧ reviewed, then held for a human |
 
 ## Key concepts
 
@@ -84,14 +102,18 @@ The prototype runtime is a **Claude `/loop` + Workflows**:
 - **Observe** — the deterministic Node core (`neutral status --json`,
   `neutral ready <cs>`) is the loop's eyes; it contains no LLM logic and trusts
   only git/files.
-- **Control loop** — a Claude `/loop` session: each tick observes, picks the
-  most out-of-state gap, and acts. Self-paced between ticks.
-- **Single-shot stages** (Designer, Impl-designer) — the loop mints the `design`
-  / `plan` LLP inline (or via a subagent).
-- **Fan-out stages** — Claude **Workflows**: the Implementer is a wave loop
-  (`parallel()` impl in isolated worktrees, then a **serial, verified** merge —
-  fan-out then fan-*in*); the Reviewer is `/dual-review` (Codex + Claude +
-  per-finding verification).
+- **Control loop** — a single Claude `/loop` session per repo (one orchestrator;
+  the one-loop-per-repo invariant intact): each tick observes every gap, **fans out
+  all branch-disjoint work in parallel** as worktree-isolated sub-agents/Workflows,
+  then **fans in** serial verified merges and re-derives "done" from ground truth.
+  Self-paced between ticks. See [LLP 0010](0010-execution-model.decision.md).
+- **Single-shot work** (Designer, Impl-designer) — minting a `design` / `plan` LLP
+  is one fan-out worker among the rest (or done inline for a lone gap).
+- **Fan-out / fan-in** — the model for the whole tick (LLP 0010), realized with
+  Claude **Workflows**: e.g. the Implementer wave loop (`parallel()` impl in
+  **self-created** worktrees, then a serial verified merge), and `reconcilePR`'s
+  heal/review work. The review rung is `/dual-review` (Codex + Claude + per-finding
+  verification).
 - **git** is the only source of "done".
 
 The standalone Node engine + headless `claude -p` workers (and tmux for a
@@ -110,8 +132,9 @@ dependent change sets.
 - `Core` — shared vocabulary (this document, the invariants, ground-truth rule).
 - `Engine` — observation, coverage check, ready-queue, `status`, dispatch.
 - `Designer` — Designer + Impl-designer reconcilers.
-- `Implementer` — wave loop, merge serialization, PR.
-- `Reviewer` — dual-review integration + fix loop.
+- `Engineer` — code-writing and -repairing reconcilers: the wave-loop Implementer
+  (pipeline), Issue-fix, and the heal rungs of PR-health (LLP 0008/0009).
+- `Reviewer` — dual-review integration + fix loop; the review rung of PR-health.
 
 ## References
 

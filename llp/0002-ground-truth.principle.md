@@ -5,7 +5,7 @@
 **Systems:** Core
 **Author:** Phil
 **Date:** 2026-06-23
-**Related:** 0000, 0001, 0003
+**Related:** 0000, 0001, 0003, 0008, 0009
 
 ## Principle
 
@@ -13,6 +13,14 @@ A reconciler decides "is this done?" only by **re-deriving the fact from the
 world**. It must never trust a status field, a metadata flag, or an agent's
 prose claim. If a fact cannot be observed and re-derived, it is not a fact the
 system may act on.
+
+The line is *who* reports. The forbidden thing is **the actor grading its own
+work** — the agent that did the merge claiming it merged, the fix agent declaring
+its own fix good. An **independent** observer's verdict that neutral re-reads from
+the world — the commit graph, a CI check, GitHub's mergeability computation — is
+not a self-report; re-deriving such a fact is exactly what this principle requires.
+And a fact that cannot be observed *yet* (a check still running) is not one the
+system may act on either — it waits.
 
 ## Rationale
 
@@ -38,6 +46,19 @@ the forgery surface entirely and makes every reconcile pass idempotent.
 - **Reviewed?** A passing review is a structured verdict whose findings were
   each verified to be resolved in the *committed tree* (a green suite is not a
   landed fix); the Engine confirms the fix commit exists.
+- **Mergeable? Green?** A PR counts as mergeable / passing only per GitHub's *own*
+  computation, read against the **current head SHA**
+  (`gh pr view --json mergeable,statusCheckRollup`). These are
+  independent-observer facts — CI re-ran the tests, GitHub computed the merge — not
+  the acting agent's claim, so re-reading them satisfies this principle. A green
+  check from a *prior* commit is stale and does not count.
+- **Bug fixed?** A fix counts only when a regression test that **failed** on the
+  pre-fix code **passes** in the committed tree — the issue-equivalent of a
+  verified ancestor. An agent's "fixed it" is a hint to verify, never a conclusion.
+- **Not yet observable ≠ false.** Some facts are eventually-consistent: a `PENDING`
+  check, an `UNKNOWN` mergeability. Treat these as **wait for the next observe**,
+  never as failure — acting on "not yet known" as if it were "broken" causes fix
+  storms on work that was about to pass.
 - **Observe immediately before acting.** Concurrent agents self-heal; re-read
   fresh state the moment before a mutating action, not minutes earlier.
 - **Surface silent caps.** If a pass bounds its work (top-N, no-retry,

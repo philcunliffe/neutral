@@ -15,7 +15,7 @@ for the no-fabrication principle, and [LLP 0003](llp/0003-coverage-and-change-se
 for the coverage invariant, change-set DAG, and ready-queue.
 
 - **Read before you change.** Before modifying a subsystem, read the LLP tagged
-  with its `Systems` value (`Core`, `Engine`, `Designer`, `Implementer`,
+  with its `Systems` value (`Core`, `Engine`, `Designer`, `Engineer`,
   `Reviewer`).
 - **Annotate non-obvious decisions.** When code realizes a documented decision,
   add `// @ref LLP NNNN#anchor — short gloss` (relations: `[implements]`,
@@ -49,4 +49,7 @@ annotations, not a claim. See [LLP 0002](llp/0002-ground-truth.principle.md).
   rendering, DAG topo-ordering.
 - `npm run typecheck` runs `tsc --noEmit` over the JSDoc-typed sources.
 - The deterministic core (`src/llp.js`, `src/refs.js`, `src/coverage.js`,
-  `src/ready.js`) never shells out. Only `src/git.js` and the controllers do.
+  `src/ready.js`, and the pure maintenance classifiers `src/prhealth.js`,
+  `src/issuefix.js`) never shells out — so the rung ladder and issue-fix logic are
+  unit-tested offline. Only the controllers shell out: `src/git.js` (git) and
+  `src/github.js` (`gh`).

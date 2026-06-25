@@ -1,185 +1,259 @@
 ---
 name: neutral-reconcile
-description: Run one reconcile tick of the neutral pipeline — observe git/file ground truth, pick the single most out-of-state change set, and advance it exactly one stage (design → plan → implement → PR → review → hold). Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to autonomously drive out-of-draft request LLPs to review-ready PRs, or to run one tick by hand.
-allowed-tools: Bash, Read, Write, Edit, Agent, Skill
+description: Run one reconcile tick of neutral — observe git/GitHub ground truth across both reconciler families (LLP→PR pipeline + PR/issue maintenance), fan out every branch-disjoint gap in parallel, fan in serial verified merges, and re-derive "done" from git. Holds every result for a human; never merges. Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to drive a repo toward neutral state, or to run one tick by hand.
+allowed-tools: Bash, Read, Write, Edit, Agent, Skill, Workflow
 ---
 
 # neutral-reconcile
 
-One **tick** of the neutral reconciler. Each tick observes ground truth, picks the
-single highest-priority gap, advances it **exactly one stage**, verifies the
-result against git, and returns. Re-running is always safe — state is derived, not
-stored. Designed to be driven by `/loop /neutral-reconcile`.
+One **tick** of the neutral reconciler. A tick observes ground truth across every
+reconciler family, **fans out all branch-disjoint gaps in parallel**, **fans in**
+serial verified merges, re-derives "done" from git/GitHub, and returns. Re-running
+is always safe — state is derived, not stored. Driven by `/loop /neutral-reconcile`.
 
-## The one rule
+The goal is **neutral state** (LLP 0008): every gap neutral can close *autonomously*
+is closed — no uncovered request LLP, no `neutral:fix` issue without a fix attempt,
+no in-scope PR left unmergeable / failing / unreviewed. Neutral stops at the
+boundary of what only a human may do: **merging is the one act neutral never
+performs.** It drives every artifact to *held, green, reviewed* and waits.
 
-**Never trust a claim of "done" — re-derive it from git.** A task is merged only
-when `git merge-base --is-ancestor` says so; a change set is merged only when its
-PR shows merged and its docs are on the target branch. The Node CLI
-(`neutral …`) and git are the authority; agents do work, the tick
-verifies it. (See LLP 0001/0002.)
+## The one rule — ground truth, never self-report (LLP 0002)
+
+**Never trust a claim of "done" — re-derive it from the world.** The independent
+observer's verdict re-read fresh is authoritative; the acting agent's prose is only
+a *hint to verify*:
+
+- **Merged?** `git merge-base --is-ancestor <branch> <integration>` — a verified ancestor.
+- **Covered?** a real `@ref LLP NNNN` in a design (or code), not a "designed" flag.
+- **Mergeable? / Green?** GitHub's *own* computation, read against the **current head
+  SHA** (`gh pr view --json mergeable,statusCheckRollup`). A green check from a prior
+  push is **stale** and does not count.
+- **Bug fixed?** a regression test that **failed** pre-fix now **passes** in the
+  committed tree (CI green on the fix PR is the authority, not the agent's local run).
+- **Not yet observable ≠ false.** A `PENDING` check or `UNKNOWN` mergeability means
+  **wait for the next tick**, never "broken" — acting on it storms work that was
+  about to pass.
+
+The deterministic Node CLI (`neutral …`) and git/`gh` are the authority; agents do
+work, the tick verifies it.
 
 ## Each tick
 
-1. **Fetch.** `git fetch --prune`. Without this, a teammate's push and the human's
+1. **Fetch.** `git fetch --prune`. Without it a teammate's push and the human's
    merge are invisible and the loop looks wedged.
-2. **Observe.**
-   - `neutral status --json` → corpus + coverage (working tree / `main`).
-   - `git for-each-ref --format='%(refname:short)' refs/heads/integration` → in-flight change sets.
-   - For each `integration/<slug>`: read its `design`/`plan` LLPs
-     (`git show integration/<slug>:llp/…`) and its task state (`neutral ready <slug> --json`).
-   - A request is **covered** if a `design` LLP on `main` OR on any `integration/*`
-     branch `@ref`s it, or code does. Do not re-design an already-in-flight request.
-3. **Pick one gap** by the priority order below (deterministic; tie-break = lowest
-   change-set / request number, so a restarted tick picks the same gap).
-4. **Advance it one stage** (the matching section below).
-5. **Verify** against git, then **emit one log line**:
-   `tick: changeset=<slug> stage=<stage> action=<what> detail=<…>`.
-6. Return. The loop schedules the next tick (git-ref watcher + heartbeat).
+2. **Observe every gap** (the loop's eyes — all CLI, no LLM judgement):
+   - **Pipeline family**
+     - `neutral backlog --json` → live requests needing a design (Designer).
+     - neutral-minted `design` LLPs (`**Generated-by:** neutral`) without a `plan`
+       (Impl-designer) — read each `integration/*` branch's LLPs.
+     - change sets with a `plan` but unmerged tasks (`neutral ready <slug> --json`).
+   - **Maintenance family**
+     - `neutral prs --json` → every in-scope open PR (own `integration/*` and
+       `fix/issue-*`) with the **single rung action** `reconcilePR` should take this
+       tick (`merge-base | resolve-conflict | fix-ci | review | ready-hold | wait |
+       stuck | held`). The CLI decides the rung from observed state — you act, you do
+       not re-decide.
+     - `neutral issues --json` → every open `neutral:fix` issue with its fix-attempt
+       state (`needs-fix | attempt-exists | stuck`).
+3. **Fan out** every **branch-disjoint** gap concurrently (LLP 0010) — implement a
+   change set, resolve a conflict on PR X, fix CI on PR Y, review PR Z, mint a
+   design, write the fix for issue I. Each worker is blind to the others and works in
+   its **own** `git worktree` (never the main checkout).
+4. **Fan in** — *you*, the orchestrator, perform the serial verified merges and
+   **re-derive "done" from git/`gh`** before anything counts. A worker's report is a
+   hint; the re-derivation is the conclusion.
+5. **Emit one log line per gap acted on:**
+   `tick: family=<pipeline|maintenance> target=<slug|pr#N|issue#N> action=<…> detail=<…>`.
+6. Return. The loop schedules the next tick.
 
-## Priority order (highest first)
+### Disjointness — the fan-out lock (LLP 0010)
 
-1. **Held PR whose predecessors just merged** → advance dependents (see Handoff).
-2. **Change set with an open, reviewed-passing PR not yet held** → flip to ready + HOLD.
-3. **Change set with an open PR needing review/fix** → Review stage.
-4. **Change set with a `plan` but unmerged tasks** → Implement stage.
-5. **A neutral-minted `design` LLP** (`**Generated-by:** neutral`) **without a `plan`** → Impl-designer stage.
-6. **Backlog non-empty** (`neutral backlog` exits 1) → Designer stage.
+**Disjointness key = the target branch / PR.** At most **one** worker per
+`integration/<slug>` (or per PR) per tick — LLP 0003's
+one-merge-flow-per-integration-branch lock, generalized. Different branches run in
+parallel; same-branch work serializes. This is what stops PR-health's base-merge on
+`integration/X` racing the Implementer's task-merge on the same branch. When the
+Workflow concurrency cap is hit, **priority is only queue order** (held-PR
+dependents → review → implement → issue-fix → design); it no longer selects a single
+action.
 
-Advance only the single highest-priority gap per tick. Within a stage, drain: the
-Designer plans + mints the WHOLE backlog as ordered change sets in one pass; the
-Implementer drains all task waves of one change set.
+## Fan-out worker: Designer (pipeline)
 
-**Scope (coexisting with an existing LLP project).** The pipeline stages
-(Impl-designer, Implement) act ONLY on designs neutral itself minted
-(`Generated-by: neutral`); a project's own `design`/`plan`/`rfc` docs are left
-alone — they still count for coverage, so neutral won't re-design what they
-address. `neutral backlog` is already config- and baseline-aware. On a brownfield
-repo, run **`neutral init`** first (scaffolds `.neutral/config.json` + baseline and
-prints what neutral would drive) and confirm the backlog is only the new work you
-want — see LLP 0007.
+Goal: every live request is `@ref`'d by a `design` LLP. Plan the **whole** backlog
+up front and mint **all** change sets in one pass (do not dribble one group per tick).
 
-## Stage: Designer
-
-Goal: every live request is `@ref`'d by a `design` LLP. The Designer plans the
-**whole** partition up front and mints **all** the change sets in one pass — it
-does not dribble out one group per tick.
-
-1. **Read the full backlog:** `neutral backlog --json` — every request needing a
-   design (already excludes code- and in-flight-covered ones). Empty → no Designer work.
-2. **Plan the partition (one reasoning pass, the whole backlog in view).** Decide
-   how to split ALL backlog requests into change sets and how to order them. Produce
-   a plan: `[{ slug, covers: [<request numbers>], dependsOn: [<other slugs in this plan>] }, …]`.
-   - Each request goes in exactly one group. Group requests that are designed /
-     implementable together (shared `Systems:`, dense `Related:` links, a natural
-     feature boundary).
-   - Order via `dependsOn`: if group B builds on group A's code, B depends on A.
-     Keep groups independent where you can — independent groups run in parallel.
-   - You have full authority over grouping and ordering; this is the plan for the
-     entire backlog, decided with everything visible.
-   - `log` the plan (one line per group: slug, covered requests, dependsOn).
-3. **Mint every change set from the plan**, in `dependsOn` topological order,
-   assigning sequential LLP numbers across the batch. NNNN starts at one more than
-   the highest LLP number across `<DEFAULT>` and all `integration/*` branches
-   (`git ls-tree -r --name-only <ref> llp/`), incrementing per group. DEFAULT =
-   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`. For each group:
+1. `neutral backlog --json` — the full backlog (already excludes code-, in-flight-,
+   and baseline-covered requests). Empty → no Designer work.
+2. **Plan the partition** (one reasoning pass, whole backlog in view):
+   `[{ slug, covers: [<request #s>], dependsOn: [<other slugs in this plan>] }, …]`.
+   Each request in exactly one group; group what's implementable together (shared
+   `Systems:`, dense `Related:`, a natural feature boundary); order with `dependsOn`
+   so B follows A when B builds on A's code; keep groups independent where you can.
+   `log` the plan (one line per group).
+3. **Mint every change set** in topological order, sequential LLP numbers across the
+   batch (start at one past the highest LLP number across `<DEFAULT>` and all
+   `integration/*`; `git ls-tree -r --name-only <ref> llp/`). For each:
    - `git switch -c integration/<slug> origin/<DEFAULT>`
-   - Mint `llp/NNNN-<slug>.design.md`: `**Type:** design`, `**Status:** Active`,
-     `**Systems:**`, `**Generated-by:** neutral`, `**Depends-on:** <predecessor slugs>`
+   - mint `llp/NNNN-<slug>.design.md`: `**Type:** design`, `**Status:** Active`,
+     `**Systems:**`, `**Generated-by:** neutral`, `**Depends-on:** <predecessors>`
      (omit if none); body = the technical design with one `@ref LLP NNNN — <gloss>`
-     line per covered request (this is what satisfies coverage).
-   - `git add llp/ && git commit && git push -u origin integration/<slug>`, then
-     `git switch <DEFAULT>`.
-4. **Verify:** `neutral backlog` is now **empty** — every backlog request is covered
-   in-flight by one of the new designs. Never commit a design to the target branch.
+     per covered request (this satisfies coverage).
+   - `git add llp/ && git commit && git push -u origin integration/<slug>`; `git switch <DEFAULT>`.
+4. **Verify:** `neutral backlog` is now **empty**. Never commit a design to the target branch.
 
-## Stage: Impl-designer
+## Fan-out worker: Impl-designer (pipeline)
 
-Goal: every `design` LLP has a `plan` LLP.
+Goal: every neutral-minted `design` LLP has a `plan` LLP.
 
 1. `git switch integration/<slug>`.
-2. For the design LLP, **mint a `plan` LLP** at `llp/NNNN-<slug>.plan.md`
-   (`**Type:** plan`, `**Status:** Active`, `**Related:** <design number>`,
-   `**Generated-by:** neutral`). Refine the design into concrete tasks and write a
-   `## Tasks` block exactly in the parser's format:
+2. Mint `llp/NNNN-<slug>.plan.md` (`**Type:** plan`, `**Status:** Active`,
+   `**Related:** <design #>`, `**Generated-by:** neutral`). Refine into small,
+   independently-mergeable tasks; write a `## Tasks` block in the parser's format:
    ```
    ## Tasks
    - id: T1  branch: task/<slug>/T1  deps: []        -- <brief>
    - id: T2  branch: task/<slug>/T2  deps: [T1]      -- <brief>
    ```
-   Keep tasks small and independently mergeable; encode real code dependencies in `deps`.
-3. **Commit + push** the plan to `integration/<slug>`.
-4. **Verify:** `neutral ready <slug> --json` parses and lists the tasks
-   (all ready/blocked, none done). `git switch -`.
+   Encode real code dependencies in `deps`.
+3. **Commit + push** to `integration/<slug>`.
+4. **Verify:** `neutral ready <slug> --json` parses and lists the tasks. `git switch -`.
 
-## Stage: Implement
+## Fan-out worker: Implement (pipeline, the wave-loop Workflow)
 
 Goal: every task is a verified-merged commit on `integration/<slug>`.
 
 1. **Prune** stale worktrees: `git worktree prune`.
-2. Ensure `integration/<slug>` exists and is **current**: if the change set's
-   `Depends-on:` predecessors are now merged to target (`changeSetMergedToTarget`),
-   first bring the updated target in — `git switch integration/<slug>`,
-   `git merge --no-edit origin/<DEFAULT>`, push — so tasks branch off code that
-   includes the predecessors. A change set whose predecessors are NOT yet merged is
-   blocked; skip it this tick.
-3. **Launch the implement-changeset Workflow** (the wave loop lives in its JS, not
-   here). Invoke the **Workflow tool** with `scriptPath` =
-   `<this skill's base directory>/implement-changeset.workflow.js` (the absolute
-   path shown when this skill loads — e.g.
-   `~/.claude/skills/neutral-reconcile/implement-changeset.workflow.js` when
-   installed user-level) and `args: { repo: <abs path of the target repo, from
+2. Ensure `integration/<slug>` is **current**: if its `Depends-on:` predecessors are
+   now merged to target (`changeSetMergedToTarget`), bring the updated target in
+   first (`git switch integration/<slug>`, `git merge --no-edit origin/<DEFAULT>`,
+   push). A change set whose predecessors are NOT merged is blocked — skip this tick.
+3. **Launch the implement-changeset Workflow** (the wave loop lives in its JS).
+   Invoke the **Workflow tool** with `scriptPath` = `<this skill's base
+   directory>/implement-changeset.workflow.js` and `args: { repo: <abs path from
    git rev-parse --show-toplevel>, slug: "<slug>", integration: "integration/<slug>" }`.
-4. **Re-verify every merge from git** after it returns — the Workflow's report is a
-   hint, not a conclusion. `neutral ready <slug> --json`: each task it
-   claims done must be a real ancestor of `integration/<slug>`. Re-dispatch anything
-   claimed-but-not-landed (the Workflow is idempotent). After **K=3** failed
-   attempts on a task, stop, label its PR `neutral:stuck`, comment why, and surface
-   it — do not loop forever.
+4. **Re-verify every merge from git** after it returns — the report is a hint.
+   `neutral ready <slug> --json`: each claimed-done task must be a real ancestor of
+   `integration/<slug>`. Re-dispatch anything claimed-but-not-landed (idempotent).
+   After **K=3** failed attempts on a task, stop, label its PR `neutral:stuck`,
+   comment why, surface it — do not loop forever.
 
-## Stage: PR + Review + fix
+Then the change set's PR is driven by **reconcilePR** below (the shared spine).
 
-Goal: the change-set PR passes review, then holds for a human.
+## Fan-out worker: reconcilePR — PR health (shared spine, LLP 0009)
 
-1. **Ensure a draft PR** `integration/<slug> → DEFAULT` exists
-   (`gh pr list --head integration/<slug>`; else `gh pr create --draft --base DEFAULT
-   --head integration/<slug>`). The PR body must end with a `Change-Set: <slug>`
-   trailer (so the squash commit on target carries it).
-2. **Review.** Detect Codex: if `command -v codex` succeeds, run the `dual-review`
-   skill on the PR number; else run `code-review`. Read the structured verdict
-   (`.git/dual-review/pr-<N>/dual-review.md` / `state.env`) or the posted comment.
-3. **Fix loop (≤ N=2 rounds).** For each actionable finding, dispatch a fix (a
-   worktree agent on `integration/<slug>` or the relevant `task/<slug>/<id>`).
-   **Positive verification:** the finding names a file/symbol — confirm that path's
-   content changed in the committed tree vs the pre-fix HEAD (a green suite is not
-   proof a fix landed). Re-merge with `--no-ff`, re-verify.
-4. When the verdict is `approve` (or no actionable findings remain after N rounds):
-   `gh pr ready <N>` and **HOLD** — never merge to the target yourself.
+Goal for **every in-scope open PR** (own `integration/*` change sets AND
+`fix/issue-*` fixes): **mergeable ∧ green ∧ reviewed**, then **held for a human**.
+The rungs are strictly ordered and `reconcilePR` climbs **one rung per PR per tick,
+then re-observes** — any push moves the head SHA, so every downstream fact is
+recomputed next tick. Distinct PRs advance in **parallel** (branch-disjoint).
+
+Do NOT re-derive the rung in prose. Read it from `neutral prs --json` — the `action`
+field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
+
+- **First, ensure the PR exists.** A change set with merged tasks but no PR needs a
+  **draft** PR `integration/<slug> → DEFAULT` (`gh pr list --head …` else
+  `gh pr create --draft --base DEFAULT --head …`), body ending `Change-Set: <slug>`.
+  A `fix/issue-*` PR is created by the issue-fix worker (below) with `Fixes #N`.
+- **`merge-base`** (rung 1, `BEHIND` — stale, no conflict): **mechanical, no agent.**
+  `git switch integration/<slug>` (or the fix branch), `git merge --no-edit
+  origin/<DEFAULT>`, push. Re-observes next tick.
+- **`resolve-conflict`** (rung 1, `DIRTY` — the **highest-blast-radius** action):
+  dispatch ONE agent in its own worktree. It resolves the conflict and must get a
+  **green local test run BEFORE pushing**. The local run is a *precaution only*; CI
+  (the green rung) is the authoritative gate after the push (LLP 0002 — the resolving
+  agent does not grade its own merge). If it cannot get a clean resolution + green
+  local run, it **backs off (no push)** and the PR is labelled `neutral:stuck`.
+- **`fix-ci`** (rung 2, `FAILURE`): dispatch ONE agent to fix from the failing logs
+  (`gh run view --log-failed`), in its own worktree, push. Re-observes next tick.
+- **`review`** (rung 3, head not yet reviewed): run the review — `dual-review` when
+  `command -v codex` succeeds, else `code-review` — on the PR number. **Capture the
+  head SHA you reviewed** (the `headSha` from `neutral prs`). For each actionable
+  finding, dispatch a fix and **positively verify** it landed (the named file/symbol
+  changed in the committed tree vs pre-fix HEAD — a green suite is not proof a fix
+  landed; LLP 0002 §Reviewed). Then **record the reviewed head**: append
+  `<!-- neutral-review: <the head SHA you reviewed> -->` to the PR body
+  (`gh pr edit <N> --body …`). If you fixed findings the head has since moved, so the
+  next tick re-reviews the new head (round 2); if the review was clean the marker now
+  covers the current head and the PR is terminal. The CLI bounds this to **N=2**
+  rounds before it returns `stuck`.
+- **`stuck`** (rung 3, unresolved past N rounds): label the PR `neutral:stuck`,
+  comment the unresolved findings, surface it — do not churn.
+- **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
+  `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
+  not own.
+- **`wait`** / **`held`**: do nothing this tick.
+
+## Fan-out worker: Issue-fix (maintenance, LLP 0009)
+
+Goal: every open `neutral:fix` issue has a **fix attempt** — a `Fixes #N` PR, or a
+documented `neutral:stuck`. The reconciler's whole job is **issue → fix PR**;
+`reconcilePR` then carries that PR to held + green + reviewed (the two invariants
+compose). The label is the **authorization** — no `neutral:fix`, no action.
+
+For each issue `neutral issues --json` reports as **`needs-fix`** (skip
+`attempt-exists` — resume via `reconcilePR`; skip `stuck` — a human must look):
+
+1. **Idempotent intake** (the CLI already checked): `fix/issue-N` branch off the
+   default branch (resume `origin/fix/issue-N` if it exists).
+2. Dispatch ONE fix agent in its own worktree under the **diagnose/bugfix
+   discipline** — *reproduce → root-cause → fix*, where **reproduce = a regression
+   test that FAILS on current code and PASSES after the fix**. The agent works out
+   how to run the tests in context (no configured command); its local run is advisory.
+3. **Ground-truth gate (LLP 0002):** no reproducing failing-then-passing test ⇒ no
+   credible fix ⇒ **no PR**. Label the issue `neutral:stuck` and surface it. Never
+   open a PR on an unproven fix.
+4. With a proven fix: open the PR `fix/issue-N → DEFAULT`, body ending **`Fixes #N`**
+   (GitHub closes the issue *on merge*; neutral never closes it). Hand off to
+   `reconcilePR`.
+5. **Escalate, don't force:** if the "bug" is really a missing feature or an
+   architectural change, file a **request LLP** instead — it re-enters the pipeline
+   family, not the maintenance family.
+
+## Fan-in: serial verified merges + re-derive
+
+After the parallel workers return, **you** do the non-parallel, verified parts:
+the task→integration merges (inside the implement Workflow's serial merger), and
+re-deriving every "done" from git/`gh` (`neutral ready`, `git merge-base
+--is-ancestor`, `gh pr view --json`). A worker that failed leaves its gap open;
+next tick re-observes and re-dispatches (idempotent — partial failure is normal).
 
 ## Stage: Handoff (after a human merges)
 
 A predecessor change set is **merged** only when, after `git fetch`, its `design`
-LLP is present on `origin/<DEFAULT>` (`changeSetMergedToTarget` in `src/git.js` —
-robust to squash vs merge commit, unlike a body trailer). Corroborate with
-`gh pr view <N> --json state` = `MERGED` if the PR is known. Only then may a change
-set whose `Depends-on:` named it begin (its stages run off the now-updated target).
-Delete the merged integration branch (local + `git push origin --delete`).
+LLP is present on `origin/<DEFAULT>` (`changeSetMergedToTarget` — robust to squash
+vs merge commit, unlike a body trailer). Corroborate with `gh pr view <N> --json
+state` = `MERGED` if known. Only then may a change set whose `Depends-on:` named it
+begin. Delete the merged integration branch (local + `git push origin --delete`).
 
 ## Invariants
 
-- **One `/loop` session per repo.** Two reconcilers racing the same repo is unsafe;
-  nothing in git prevents it, so don't.
-- **Never push to the target branch.** All design/plan/code land via the held
-  change-set PR; only a human merges it.
+- **One `/loop` session per repo.** Parallelism is *intra-tick* via sub-agents;
+  exactly one orchestrator touches the repo (LLP 0010). Two reconcilers racing the
+  same repo is unsafe — nothing in git prevents it, so don't.
+- **Never merge.** Merging is the one irreversible act, always a human's. Drive to
+  held + green + reviewed and stop.
+- **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
+- **Never `gh pr ready` (or otherwise act on) a PR neutral does not own.** In scope
+  today: own `integration/*` and `fix/issue-*` only. **Foreign-PR adoption
+  (`neutral:adopt`) is deferred** — if such a PR appears, handle it manually
+  (LLP 0008 §Scope, LLP 0009 §Deferred).
+- **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
+- **Head-SHA keying.** "Green" and "reviewed" only count for the *current* head SHA;
+  re-read it each tick.
+- **PENDING / UNKNOWN = wait, not act.** A running check or computing mergeability is
+  not failure.
+- **Self-created worktrees.** The Workflow runtime's built-in `isolation:'worktree'`
+  fails in this repo; every worker runs `git worktree add` itself.
 - **Squash only at the final PR.** Task→integration merges are `--no-ff` (so
   `--is-ancestor` holds). The `integration → target` PR is the only squash.
-- **Idempotent dispatch.** Before creating any branch, check it exists
-  (`git rev-parse --verify`); if so, resume from it — never force-recreate.
+- **Idempotent dispatch.** Before creating any branch, check it exists; if so, resume.
 
 ## Quick start (run one tick by hand)
 
 ```sh
-neutral coverage        # is there a backlog?
-neutral status --json   # observe
-# then follow the highest-priority stage above for one change set.
+git fetch --prune
+neutral backlog --json     # pipeline: any design work?
+neutral prs --json         # maintenance: each in-scope PR's next rung action
+neutral issues --json      # maintenance: each neutral:fix issue's state
+# then fan out the branch-disjoint workers above and re-derive from git.
 ```

@@ -95,6 +95,9 @@ Return: merged=[{id, sha (the merge commit)}] for each verified-and-pushed task;
 }
 
 // ---- the wave loop (deterministic JS; git work is delegated to agents) ----
+// The per-change-set fan-out/fan-in (parallel worktree impl, then a serial verified
+// merge) that the tick-wide execution model generalizes to every branch-disjoint gap.
+// @ref LLP 0010#decision [constrained-by] — the wave loop the per-tick fan-out generalizes
 
 let prevDone = -1
 let guard = 0
