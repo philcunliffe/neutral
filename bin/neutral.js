@@ -9,10 +9,13 @@ import { llpCommand } from '../src/commands/llp.js'
 import { initCommand } from '../src/commands/init.js'
 import { prsCommand } from '../src/commands/prs.js'
 import { issuesCommand } from '../src/commands/issues.js'
+import { idleCommand } from '../src/commands/idle.js'
+import { startCommand } from '../src/commands/start.js'
 
 const USAGE = `neutral — declarative reconcilers for the LLP -> PR pipeline
 
 usage:
+  neutral start                  launch the orchestrator loop in its tmux pane (LLP 0013)
   neutral init                   scaffold .neutral/ config + baseline; report the backlog
   neutral status [--json]        corpus by stage, coverage gap, designs
   neutral coverage [--json]      working-tree coverage as an exit code (0 covered, 1 not)
@@ -20,6 +23,7 @@ usage:
   neutral ready <slug> [--json]  the unblocked-open task queue for a change set
   neutral prs [--json]           in-scope open PRs with the reconcilePR rung to act on
   neutral issues [--json]        open neutral:fix issues with their fix-attempt state
+  neutral idle [--json]          is the tick idle, and should it recycle context (LLP 0013)
   neutral llp <number> [--json]  inspect one LLP: metadata, role, coverage
   neutral help                   this message
 `
@@ -33,6 +37,7 @@ async function main(argv) {
   const repo = process.cwd()
 
   switch (cmd) {
+    case 'start': return startCommand(repo, rest)
     case 'init': return initCommand(repo, rest)
     case 'status': return statusCommand(repo, rest)
     case 'coverage': return coverageCommand(repo, rest)
@@ -40,6 +45,7 @@ async function main(argv) {
     case 'ready': return readyCommand(repo, rest)
     case 'prs': return prsCommand(repo, rest)
     case 'issues': return issuesCommand(repo, rest)
+    case 'idle': return idleCommand(repo, rest)
     case 'llp': return llpCommand(repo, rest)
     case 'help':
     case '--help':

@@ -34,6 +34,23 @@ test('loadConfig merges a partial config over the defaults', () => {
   }
 })
 
+test('loadConfig accepts a positive integer maxReviewRounds, else keeps the default', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
+  try {
+    mkdirSync(join(repo, '.neutral'))
+    /** @param {unknown} v */
+    const write = (v) => writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ maxReviewRounds: v }))
+    write(5)
+    assert.equal(loadConfig(repo).maxReviewRounds, 5)
+    write(0)                                                          // not positive -> default
+    assert.equal(loadConfig(repo).maxReviewRounds, DEFAULT_CONFIG.maxReviewRounds)
+    write('3')                                                        // not an integer -> default
+    assert.equal(loadConfig(repo).maxReviewRounds, DEFAULT_CONFIG.maxReviewRounds)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('a config can remap `plan` out of the design role', () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
   try {

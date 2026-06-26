@@ -1,6 +1,9 @@
 // @ts-check
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { collectPRs } from '../src/commands/prs.js'
 import { collectIssues } from '../src/commands/issues.js'
 
@@ -53,6 +56,33 @@ test('collectPRs keeps only neutral-owned heads and attaches a rung decision', a
 
 test('collectPRs is empty when there are no open PRs (offline-safe)', async () => {
   assert.deepEqual(await collectPRs('/r', fakeWorld({ prs: [] })), [])
+})
+
+test('collectPRs honours the maxReviewRounds config knob', async () => {
+  // A mergeable, green PR whose head is unreviewed but already carries one review
+  // round: with the default bound (2) it gets another review; with a config bound of
+  // 1 it is past the cap and surfaced as stuck.
+  const exec = fakeWorld({
+    prs: [{ number: 1, headRefName: 'integration/auth' }],
+    views: {
+      1: {
+        number: 1, headRefName: 'integration/auth', baseRefName: 'main', isDraft: true,
+        mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [],
+        headRefOid: 'ccccccc', body: 'context\n<!-- neutral-review: aaaaaaa -->'
+      }
+    }
+  })
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-prs-'))
+  try {
+    // No config -> default bound of 2: one prior round is under the cap, so review.
+    assert.equal((await collectPRs(repo, exec))[0].action, 'review')
+    // Bound of 1: the prior round meets the cap, so stuck.
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ maxReviewRounds: 1 }))
+    assert.equal((await collectPRs(repo, exec))[0].action, 'stuck')
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
 })
 
 test('collectIssues classifies each neutral:fix issue from ground truth', async () => {

@@ -101,8 +101,9 @@ per-tick fan-out of LLP 0010.)
    - `SUCCESS` → rung satisfied.
 3. **Reviewed** — run the review (`dual-review` when Codex is present, else
    `code-review`); each actionable finding is fixed and verified resolved in the
-   committed tree (LLP 0002 §Reviewed), bounded to **N=2 fix rounds** before
-   `neutral:stuck`. A `<!-- neutral-review: <headSHA> -->` marker records the head a
+   committed tree (LLP 0002 §Reviewed), bounded to **N fix rounds** (the
+   `maxReviewRounds` config knob, default 2 — see [LLP 0007](0007-config-and-onboarding.spec.md))
+   before `neutral:stuck`. A `<!-- neutral-review: <headSHA> -->` marker records the head a
    review covered, so an unchanged head is not re-reviewed every tick; a new head
    SHA (from rungs 1–2, or a human's push) re-opens review.
 

@@ -16,6 +16,12 @@ export const STUCK_LABEL = 'neutral:stuck'  // neutral sets this when it cannot 
 // still unreviewed, the PR is surfaced as stuck rather than churned forever.
 // @ref LLP 0009#pr-health-reconciler [implements] — N=2 fix rounds
 export const DEFAULT_REVIEW_ROUNDS = 2
+// Context-autophagy trigger: on an idle tick, recycle the orchestrator's context once
+// its measured size exceeds this many tokens. A single tuning constant, set BELOW the
+// harness auto-compact threshold so the recycle fires before lossy summarization —
+// generous on a 1M-window model. Empirical to tune, not a design unknown.
+// @ref LLP 0013#trigger [implements] — the threshold T
+export const DEFAULT_CONTEXT_THRESHOLD = 500_000
 
 /** @type {NeutralConfig} */
 export const DEFAULT_CONFIG = {
@@ -42,7 +48,12 @@ export const DEFAULT_CONFIG = {
     design: ['design', 'plan']
   },
   // Statuses that mean a request has left Draft and is live.
-  liveStatuses: ['accepted', 'active']
+  liveStatuses: ['accepted', 'active'],
+  // The reconcilePR review-rung fix-loop bound (LLP 0009): how many review rounds a
+  // PR may go through before neutral surfaces it as stuck instead of churning it.
+  maxReviewRounds: DEFAULT_REVIEW_ROUNDS,
+  // Context-autophagy trigger threshold T, in tokens (LLP 0013). Per-repo tunable.
+  contextRecycleThreshold: DEFAULT_CONTEXT_THRESHOLD
 }
 
 /**
@@ -64,7 +75,13 @@ function merge(base, over) {
       request: Array.isArray(roles.request) ? roles.request : base.roles.request,
       design: Array.isArray(roles.design) ? roles.design : base.roles.design
     },
-    liveStatuses: Array.isArray(o.liveStatuses) ? o.liveStatuses : base.liveStatuses
+    liveStatuses: Array.isArray(o.liveStatuses) ? o.liveStatuses : base.liveStatuses,
+    maxReviewRounds: Number.isInteger(o.maxReviewRounds) && o.maxReviewRounds > 0
+      ? o.maxReviewRounds
+      : base.maxReviewRounds,
+    contextRecycleThreshold: Number.isInteger(o.contextRecycleThreshold) && o.contextRecycleThreshold > 0
+      ? o.contextRecycleThreshold
+      : base.contextRecycleThreshold
   }
 }
 

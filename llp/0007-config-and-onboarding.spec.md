@@ -29,6 +29,9 @@ file → defaults. Tracked (not gitignored). Fields:
   these without touching code (e.g. declare that `plan` is a human doc here, not a
   neutral impl-design).
 - `liveStatuses` — statuses that count as live (default `accepted`, `active`).
+- `maxReviewRounds` — the reconcilePR review-rung fix-loop bound (default `2`):
+  how many review rounds a PR may go through before neutral surfaces it as stuck
+  instead of churning it (see [LLP 0009](0009-maintenance-reconcilers.spec.md)).
 
 ## Baseline
 

@@ -64,6 +64,10 @@ export interface NeutralConfig {
   }
   /** Statuses that count as live (left Draft). */
   liveStatuses: string[]
+  /** reconcilePR review-rung fix-loop bound before a PR is surfaced as stuck. */
+  maxReviewRounds: number
+  /** Context-autophagy trigger threshold T, in tokens (LLP 0013). */
+  contextRecycleThreshold: number
 }
 
 export interface World {
@@ -103,6 +107,24 @@ export interface RungDecision {
   /** wait | merge-base | resolve-conflict | fix-ci | review | stuck | ready-hold | held. */
   action: string
   reason: string
+}
+
+/** One reason a tick is not idle: a gap still in flight in one of the families (LLP 0013). */
+export interface IdleBlocker {
+  /** pipeline | maintenance. */
+  family: string
+  /** The gap's target — `llp#N` | `pr#N` | `issue#N`. */
+  target: string
+  reason: string
+}
+
+/**
+ * Whether a tick is at rest across both reconciler families, with the blockers that
+ * hold it open (empty ⇔ idle). Half the context-autophagy trigger (LLP 0013).
+ */
+export interface IdleState {
+  idle: boolean
+  blockers: IdleBlocker[]
 }
 
 /** A `neutral:fix` issue's fix-attempt state, re-derived from ground truth (LLP 0009). */

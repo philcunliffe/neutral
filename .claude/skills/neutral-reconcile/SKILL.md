@@ -67,7 +67,11 @@ work, the tick verifies it.
    hint; the re-derivation is the conclusion.
 5. **Emit one log line per gap acted on:**
    `tick: family=<pipeline|maintenance> target=<slug|pr#N|issue#N> action=<…> detail=<…>`.
-6. Return. The loop schedules the next tick.
+6. **End of tick — recycle or schedule (LLP 0013).** Run `neutral idle --json`. If
+   `recycle` is `false`, **return** and let the loop schedule the next tick
+   (`ScheduleWakeup`). If `recycle` is `true` (idle ∧ context > T), perform the
+   **context-autophagy respawn** (below) **instead of** scheduling — it is the tick's
+   last act.
 
 ### Disjointness — the fan-out lock (LLP 0010)
 
@@ -79,6 +83,45 @@ parallel; same-branch work serializes. This is what stops PR-health's base-merge
 Workflow concurrency cap is hit, **priority is only queue order** (held-PR
 dependents → review → implement → issue-fix → design); it no longer selects a single
 action.
+
+### Context autophagy — recycle on idle (LLP 0013)
+
+On a genuinely **idle** tick (neutral reached, nothing in flight) whose measured
+context has grown past the threshold **T**, the orchestrator recycles its own context
+by tearing the session down and re-entering fresh — there is no in-session clear and
+`ScheduleWakeup` re-enters the *same* growing context (LLP 0010 §Context recycle).
+**Both conditions are ground truth**, read once by `neutral idle --json`, never the
+model's own judgement (LLP 0002):
+
+- `idle` — backlog empty ∧ every in-scope PR action `held` ∧ no `needs-fix` issue.
+  **`wait` is not idle** — a running check is in flight; recycling mid-run would
+  strand it. The CLI returns the `blockers` holding the tick open if not.
+- `context > T` — the API's own per-turn `usage` summed from *this* session's
+  transcript (keyed by `$CLAUDE_CODE_SESSION_ID`), not a self-estimate. Unmeasurable
+  context reads as "do not recycle".
+
+`recycle` is `true` only when **both** hold. Then, **after** fan-in and after the
+tick's log lines (R2 — nothing may follow this destructive act):
+
+- **In tmux** (`$TMUX` set): emit one final log line
+  `tick: family=autophagy action=recycle detail=context=<N> threshold=<T>`, then
+  **respawn the pane** — the tick's last act:
+  ```sh
+  tmux respawn-pane -k "claude '/loop /neutral-reconcile'"
+  ```
+  No `-t`: tmux defaults to the **current pane** (`$TMUX_PANE`), so the respawn targets
+  the very pane the loop runs in — independent of the per-repo session name (LLP 0014).
+  `respawn-pane -k` atomically kills this session and starts a fresh `/loop` in the
+  **same pane** — the pane is the one-orchestrator mutex, so no successor can overlap
+  the predecessor (R4, LLP 0010). The fresh session re-`observe`s every gap from
+  git/the API; **no handoff state** crosses the boundary (LLP 0002).
+- **Not in tmux** (`$TMUX` unset — R6): context autophagy is **unavailable**. Do
+  **not** respawn and **never** attempt a `setsid`/detached self-relaunch (the
+  two-orchestrator hazard, LLP 0010). Return normally; harness auto-summarization
+  handles context growth as the fallback.
+
+A respawn resets the transcript to baseline, so autophagy **self-rate-limits** (R5):
+it cannot fire again until context regrows past T (tens of idle ticks).
 
 ## Fan-out worker: Designer (pipeline)
 
@@ -276,4 +319,5 @@ neutral backlog --json     # pipeline: any design work?
 neutral prs --json         # maintenance: each in-scope PR's next rung action
 neutral issues --json      # maintenance: each neutral:fix issue's state
 # then fan out the branch-disjoint workers above and re-derive from git.
+neutral idle --json        # end of tick: idle ∧ context>T ? recycle the pane (LLP 0013)
 ```
