@@ -39,8 +39,11 @@ work, the tick verifies it.
 
 ## Each tick
 
-1. **Fetch.** `git fetch --prune`. Without it a teammate's push and the human's
-   merge are invisible and the loop looks wedged.
+1. **Fetch + prune.** `git fetch --prune` (without it a teammate's push and the
+   human's merge are invisible and the loop looks wedged), then `git worktree prune`
+   to reap worktrees a failed worker left behind. **The main checkout is read-only**
+   — every git mutation this tick happens in a self-created worktree (LLP 0012), so a
+   dirty working tree or a human editing the repo never blocks the loop.
 2. **Observe every gap** (the loop's eyes — all CLI, no LLM judgement):
    - **Pipeline family**
      - `neutral backlog --json` → live requests needing a design (Designer).
@@ -92,20 +95,23 @@ up front and mint **all** change sets in one pass (do not dribble one group per 
    `log` the plan (one line per group).
 3. **Mint every change set** in topological order, sequential LLP numbers across the
    batch (start at one past the highest LLP number across `<DEFAULT>` and all
-   `integration/*`; `git ls-tree -r --name-only <ref> llp/`). For each:
-   - `git switch -c integration/<slug> origin/<DEFAULT>`
+   `integration/*`; `git ls-tree -r --name-only <ref> llp/`). For each, in its **own
+   detached worktree** (never the main checkout, LLP 0012):
+   - `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<DEFAULT> && cd "$WT"`
    - mint `llp/NNNN-<slug>.design.md`: `**Type:** design`, `**Status:** Active`,
      `**Systems:**`, `**Generated-by:** neutral`, `**Depends-on:** <predecessors>`
      (omit if none); body = the technical design with one `@ref LLP NNNN — <gloss>`
      per covered request (this satisfies coverage).
-   - `git add llp/ && git commit && git push -u origin integration/<slug>`; `git switch <DEFAULT>`.
+   - `git add llp/ && git commit && git push origin HEAD:integration/<slug>` (creates
+     the remote branch); then `cd <repo> && git worktree remove --force "$WT"`.
 4. **Verify:** `neutral backlog` is now **empty**. Never commit a design to the target branch.
 
 ## Fan-out worker: Impl-designer (pipeline)
 
 Goal: every neutral-minted `design` LLP has a `plan` LLP.
 
-1. `git switch integration/<slug>`.
+1. In its **own detached worktree** (never the main checkout, LLP 0012):
+   `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/integration/<slug> && cd "$WT"`.
 2. Mint `llp/NNNN-<slug>.plan.md` (`**Type:** plan`, `**Status:** Active`,
    `**Related:** <design #>`, `**Generated-by:** neutral`). Refine into small,
    independently-mergeable tasks; write a `## Tasks` block in the parser's format:
@@ -115,8 +121,9 @@ Goal: every neutral-minted `design` LLP has a `plan` LLP.
    - id: T2  branch: task/<slug>/T2  deps: [T1]      -- <brief>
    ```
    Encode real code dependencies in `deps`.
-3. **Commit + push** to `integration/<slug>`.
-4. **Verify:** `neutral ready <slug> --json` parses and lists the tasks. `git switch -`.
+3. **Commit + push:** `git add llp/ && git commit && git push origin HEAD:integration/<slug>`.
+4. **Verify** from the worktree: `neutral ready <slug> --json` parses and lists the
+   tasks. Then `cd <repo> && git worktree remove --force "$WT"`.
 
 ## Fan-out worker: Implement (pipeline, the wave-loop Workflow)
 
@@ -125,8 +132,10 @@ Goal: every task is a verified-merged commit on `integration/<slug>`.
 1. **Prune** stale worktrees: `git worktree prune`.
 2. Ensure `integration/<slug>` is **current**: if its `Depends-on:` predecessors are
    now merged to target (`changeSetMergedToTarget`), bring the updated target in
-   first (`git switch integration/<slug>`, `git merge --no-edit origin/<DEFAULT>`,
-   push). A change set whose predecessors are NOT merged is blocked — skip this tick.
+   first — in a **detached worktree**, never the main checkout (LLP 0012):
+   `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/integration/<slug> && cd "$WT" && git merge --no-edit origin/<DEFAULT> && git push origin HEAD:integration/<slug>`,
+   then `cd <repo> && git worktree remove --force "$WT"`. A change set whose
+   predecessors are NOT merged is blocked — skip this tick.
 3. **Launch the implement-changeset Workflow** (the wave loop lives in its JS).
    Invoke the **Workflow tool** with `scriptPath` = `<this skill's base
    directory>/implement-changeset.workflow.js` and `args: { repo: <abs path from
@@ -154,9 +163,11 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   **draft** PR `integration/<slug> → DEFAULT` (`gh pr list --head …` else
   `gh pr create --draft --base DEFAULT --head …`), body ending `Change-Set: <slug>`.
   A `fix/issue-*` PR is created by the issue-fix worker (below) with `Fixes #N`.
-- **`merge-base`** (rung 1, `BEHIND` — stale, no conflict): **mechanical, no agent.**
-  `git switch integration/<slug>` (or the fix branch), `git merge --no-edit
-  origin/<DEFAULT>`, push. Re-observes next tick.
+- **`merge-base`** (rung 1, `BEHIND` — stale, no conflict): **mechanical, no agent**,
+  in a **detached worktree** (never the main checkout, LLP 0012) — `<pr-branch>` is
+  `integration/<slug>` or the `fix/issue-*` branch:
+  `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<pr-branch> && cd "$WT" && git merge --no-edit origin/<DEFAULT> && git push origin HEAD:<pr-branch>`,
+  then `cd <repo> && git worktree remove --force "$WT"`. Re-observes next tick.
 - **`resolve-conflict`** (rung 1, `DIRTY` — the **highest-blast-radius** action):
   dispatch ONE agent in its own worktree. It resolves the conflict and must get a
   **green local test run BEFORE pushing**. The local run is a *precaution only*; CI
@@ -165,9 +176,12 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   local run, it **backs off (no push)** and the PR is labelled `neutral:stuck`.
 - **`fix-ci`** (rung 2, `FAILURE`): dispatch ONE agent to fix from the failing logs
   (`gh run view --log-failed`), in its own worktree, push. Re-observes next tick.
-- **`review`** (rung 3, head not yet reviewed): run the review — `dual-review` when
-  `command -v codex` succeeds, else `code-review` — on the PR number. **Capture the
-  head SHA you reviewed** (the `headSha` from `neutral prs`). For each actionable
+- **`review`** (rung 3, head not yet reviewed): dispatch the review in its **own
+  worktree** (never the main checkout, LLP 0012) — `dual-review` does a `gh pr
+  checkout --detach` *in place* and **refuses on a dirty tree**, so it must run in a
+  clean, isolated checkout. Run the review — `dual-review` when `command -v codex`
+  succeeds, else `code-review` — on the PR number. **Capture the head SHA you
+  reviewed** (the `headSha` from `neutral prs`). For each actionable
   finding, dispatch a fix and **positively verify** it landed (the named file/symbol
   changed in the committed tree vs pre-fix HEAD — a green suite is not proof a fix
   landed; LLP 0002 §Reviewed). Then **record the reviewed head**: append
@@ -242,8 +256,14 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   re-read it each tick.
 - **PENDING / UNKNOWN = wait, not act.** A running check or computing mergeability is
   not failure.
-- **Self-created worktrees.** The Workflow runtime's built-in `isolation:'worktree'`
-  fails in this repo; every worker runs `git worktree add` itself.
+- **Self-created worktrees; the main checkout is read-only.** The Workflow runtime's
+  built-in `isolation:'worktree'` fails in this repo, so every worker runs `git
+  worktree add` itself — and so does the orchestrator for its *own* git mutations
+  (queue read, serial merger, `merge-base` rung, design/plan minting, review). The
+  orchestrator never `git switch`es or writes the main checkout, so a dirty working
+  tree or a human editing the repo never blocks a tick (LLP 0012). Orchestrator
+  worktrees are **detached** (`git worktree add --detach origin/<branch>`, push via
+  `HEAD:<branch>`) so they never collide with a branch checked out elsewhere.
 - **Squash only at the final PR.** Task→integration merges are `--no-ff` (so
   `--is-ancestor` holds). The `integration → target` PR is the only squash.
 - **Idempotent dispatch.** Before creating any branch, check it exists; if so, resume.

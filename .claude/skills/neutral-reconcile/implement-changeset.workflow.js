@@ -7,10 +7,14 @@ export const meta = {
   ]
 }
 
-// args: { repo, slug, integration }
-const repo = args.repo
-const slug = args.slug
-const integration = args.integration
+// args: { repo, slug, integration }. The Workflow tool is documented to pass
+// `args` through verbatim, but in practice it can arrive either as a parsed
+// object or as a JSON string — accept both so the workflow can't silently
+// no-op on `undefined` fields.
+const _args = typeof args === 'string' ? JSON.parse(args) : (args || {})
+const repo = _args.repo
+const slug = _args.slug
+const integration = _args.integration
 
 const TASK = {
   type: 'object',
@@ -55,7 +59,20 @@ const MERGE_SCHEMA = {
   }
 }
 
-const DERIVE_READY = `In the repo at ${repo}: run \`git fetch --prune\` then \`neutral ready ${slug} --json\` (the global \`neutral\` CLI reads this repo via cwd). Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth.`
+// `neutral ready` reads the plan LLP from the WORKING TREE (src/commands/ready.js
+// → readLlps), and the plan lives on ${integration}, not the default branch. Rather
+// than switch the MAIN checkout — which couples the loop to a clean main checkout and
+// breaks the moment a human is editing the repo — read it from a throwaway DETACHED
+// worktree on origin/${integration}; that worktree's tree carries the plan.
+// @ref LLP 0012#decision [implements] — queue read runs in a worktree, never the main checkout
+const DERIVE_READY = `In the repo at ${repo}, read the task queue from a throwaway worktree on the integration branch — never switch the main checkout. \`neutral ready\` reads the plan LLP from the working tree, and the plan for "${slug}" lives on ${integration}. Steps:
+
+1. \`cd ${repo} && git fetch --prune && git worktree prune\`.
+2. \`WT=$(mktemp -d) && git worktree add --detach "$WT" origin/${integration}\` — detached, so no branch is checked out and it never conflicts with the main checkout or another worktree.
+3. \`cd "$WT" && neutral ready ${slug} --json\` (the global \`neutral\` CLI reads the change set from this worktree's tree).
+4. Clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.
+
+Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth. If the CLI errors (e.g. prints "no plan LLP" to stderr instead of JSON), return ready/blocked/done all empty — the workflow treats an all-empty first read as a hard failure, never as "complete".`
 
 function implPrompt(t) {
   return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. Isolate your work in your OWN git worktree — never edit the main checkout.
@@ -75,11 +92,12 @@ function implPrompt(t) {
 Return: id="${t.id}", branch="${t.branch}", prNumber, headSha (\`git rev-parse origin/${t.branch}\`), testsPass (true ONLY if tests AND typecheck passed). If you cannot make them pass, return testsPass=false with short notes — never fake success.`
 }
 
+// @ref LLP 0012#decision [implements] — the serial merger runs in its own detached worktree, never the main checkout
 function mergePrompt(built) {
   const list = built.map(b => `${b.id} (origin/${b.branch})`).join(', ')
-  return `You are the SERIAL merger for change set "${slug}" in the neutral repo at ${repo}. Work directly in this repo checkout, which is already on the ${integration} branch (do NOT create a worktree — that branch is checked out here). Merge these task branches into ${integration} ONE AT A TIME — never in parallel — each fully verified before the next: ${list}. These wave tasks are mutually independent, so order among them does not matter.
+  return `You are the SERIAL merger for change set "${slug}" in the neutral repo at ${repo}. Work in your OWN detached worktree on the integration branch — never the main checkout. Merge these task branches into ${integration} ONE AT A TIME — never in parallel — each fully verified before the next: ${list}. These wave tasks are mutually independent, so order among them does not matter.
 
-Setup: \`git fetch --prune\`; confirm you are on ${integration} (\`git switch ${integration}\`) and sync it to the remote (\`git merge --ff-only origin/${integration}\`).
+Setup: \`cd ${repo} && git fetch --prune && git worktree prune\`, then \`WT=$(mktemp -d) && git worktree add --detach "$WT" origin/${integration} && cd "$WT"\`. Detached HEAD starts at the integration tip; you build the merge commits on it and push them to ${integration} at the end — the main checkout is never touched.
 
 For EACH task branch:
 1. \`git merge --no-ff --no-edit origin/<task-branch>\`  (NOT squash — parentage must survive so --is-ancestor stays true).
@@ -89,7 +107,7 @@ For EACH task branch:
    c. content: for every file in \`git diff --name-only origin/<task-branch>~1 origin/<task-branch>\` (the task's own changes), \`git diff origin/<task-branch> HEAD -- <file>\` is EMPTY — the task's files now match the task tip on integration.
 3. Only then proceed to the next task.
 
-After all verified merges: \`git push origin HEAD:${integration}\`.
+After all verified merges: \`git push origin HEAD:${integration}\`. Then clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.
 
 Return: merged=[{id, sha (the merge commit)}] for each verified-and-pushed task; failed=[{id, reason}] otherwise. Never report a merge you did not verify and push — a fabricated merge corrupts the change set.`
 }
@@ -105,6 +123,17 @@ let lastReady = null
 
 while (guard++ < 64) {
   const r = await agent(DERIVE_READY, { label: `derive-ready:${slug}`, phase: 'Implement', schema: READY_SCHEMA })
+
+  // First-wave failure guard: an all-empty read on the very first wave means
+  // derive-ready couldn't see the plan at all (wrong branch checked out, bad
+  // args) — that's a failure, not "complete". A real change set with a plan
+  // always has at least one task in some bucket, so all-three-empty can only
+  // mean the read failed. Surface it loudly instead of returning a false complete.
+  if (guard === 1 && (!r || (r.ready.length === 0 && r.blocked.length === 0 && r.done.length === 0))) {
+    log(`implement ${slug}: derive-ready saw zero tasks on the first wave — treating as failure, not complete`)
+    return { slug, status: 'error', reason: 'derive-ready-empty', done: [], remaining: [] }
+  }
+
   if (!r || !r.ready || r.ready.length === 0) { lastReady = r; break }
 
   // No-progress guard: the done-set must grow each wave, else we are stuck.
