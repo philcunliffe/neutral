@@ -11,8 +11,9 @@ import { run } from './git.js'
 /** @import { PrObservation } from './types.d.ts' */
 
 // The fields reconcilePR's rungs need: mergeability, the check rollup, the head SHA
-// (every downstream fact is keyed to it), and the body (carries review markers).
-const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body'
+// (every downstream fact is keyed to it), the body (carries review markers), and the
+// labels (`neutral:stuck` halts auto-advance, mirroring the issue family).
+const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels'
 
 /**
  * Numbers + head branches of every open PR. Used to enumerate; the per-PR health
@@ -47,7 +48,8 @@ export function normalizePR(o) {
     mergeStateStatus: o.mergeStateStatus || 'UNKNOWN',
     rollup: Array.isArray(o.statusCheckRollup) ? o.statusCheckRollup : [],
     headSha: o.headRefOid || '',
-    body: o.body || ''
+    body: o.body || '',
+    labels: (Array.isArray(o.labels) ? o.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || '')
   }
 }
 

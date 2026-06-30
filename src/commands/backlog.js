@@ -18,7 +18,7 @@ import { padStart } from '../format.js'
  * @returns {Promise<{ backlog: Llp[], inFlight: Set<number>, baseline: Set<number>, eligible: number }>}
  */
 export async function collectBacklog(repo) {
-  const world = observe(repo)
+  const world = await observe(repo)
   const inFlight = await inFlightCoveredRefs(repo, undefined, world.config)
   const baseline = loadBaseline(repo)
   const backlog = world.coverage.uncovered.filter(l => !inFlight.has(l.number) && !baseline.has(l.number))

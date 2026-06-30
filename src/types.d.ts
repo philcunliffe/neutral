@@ -98,13 +98,21 @@ export interface PrObservation {
   headSha: string
   /** PR body — carries the `<!-- neutral-review: <sha> -->` markers. */
   body: string
+  /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). */
+  labels: string[]
 }
 
 /** The single rung action reconcilePR takes on a PR this tick (LLP 0009). */
 export interface RungDecision {
   /** mergeable | green | reviewed | terminal. */
   rung: string
-  /** wait | merge-base | resolve-conflict | fix-ci | review | stuck | ready-hold | held. */
+  /**
+   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | held.
+   * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
+   * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
+   * (shipping the PR) or sets the `neutral:stuck` label itself (LLP 0017). `selectRung` no
+   * longer emits `stuck` as an action — the label, once set, short-circuits to `held`.
+   */
   action: string
   reason: string
 }

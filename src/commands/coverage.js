@@ -8,10 +8,10 @@ import { padStart } from '../format.js'
 /**
  * @param {string} repo
  * @param {string[]} args
- * @returns {number}
+ * @returns {Promise<number>}
  */
-export function coverageCommand(repo, args) {
-  const { coverage } = observe(repo)
+export async function coverageCommand(repo, args) {
+  const { coverage } = await observe(repo)
   const n = coverage.uncovered.length
 
   if (args.includes('--json')) {

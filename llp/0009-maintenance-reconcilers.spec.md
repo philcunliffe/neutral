@@ -107,6 +107,13 @@ per-tick fan-out of LLP 0010.)
    review covered, so an unchanged head is not re-reviewed every tick; a new head
    SHA (from rungs 1–2, or a human's push) re-opens review.
 
+   > **Extended-by [LLP 0017](0017-triage-at-review-cap.decision.md):** at the
+   > `maxReviewRounds` cap neutral no longer goes straight to `neutral:stuck`. It first
+   > **triages** the residual findings — if every one is a non-blocking preference they are
+   > deferred to a `neutral:fix` follow-up issue (recorded by a head-keyed
+   > `<!-- neutral-triage: <headSHA> #M -->` marker) and the PR ships (held for a human);
+   > only a true production-risk blocker yields `neutral:stuck`.
+
 **Terminal.** When all three rungs hold, the PR is **held for a human**: a draft is
 flipped `gh pr ready` and left for a human to merge — never auto-merged
 (LLP 0000 §Autonomy). Merging is the one act neutral never performs; it is also

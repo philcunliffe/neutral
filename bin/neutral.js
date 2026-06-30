@@ -5,6 +5,7 @@ import { statusCommand } from '../src/commands/status.js'
 import { readyCommand } from '../src/commands/ready.js'
 import { coverageCommand } from '../src/commands/coverage.js'
 import { backlogCommand } from '../src/commands/backlog.js'
+import { implementableCommand } from '../src/commands/implementable.js'
 import { llpCommand } from '../src/commands/llp.js'
 import { initCommand } from '../src/commands/init.js'
 import { prsCommand } from '../src/commands/prs.js'
@@ -20,6 +21,7 @@ usage:
   neutral status [--json]        corpus by stage, coverage gap, designs
   neutral coverage [--json]      working-tree coverage as an exit code (0 covered, 1 not)
   neutral backlog [--json]       requests needing a design (excl. in-flight + baselined)
+  neutral implementable [--json] Accepted designs merged to target, owed an implementation (LLP 0003)
   neutral ready <slug> [--json]  the unblocked-open task queue for a change set
   neutral prs [--json]           in-scope open PRs with the reconcilePR rung to act on
   neutral issues [--json]        open neutral:fix issues with their fix-attempt state
@@ -42,6 +44,7 @@ async function main(argv) {
     case 'status': return statusCommand(repo, rest)
     case 'coverage': return coverageCommand(repo, rest)
     case 'backlog': return backlogCommand(repo, rest)
+    case 'implementable': return implementableCommand(repo, rest)
     case 'ready': return readyCommand(repo, rest)
     case 'prs': return prsCommand(repo, rest)
     case 'issues': return issuesCommand(repo, rest)

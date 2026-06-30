@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   selectRung, classifyMergeable, rollupConclusion,
-  parseReviewMarkers, reviewRounds, reviewedAtHead
+  parseReviewMarkers, reviewRounds, reviewedAtHead,
+  parseTriageMarkers, triagedAtHead
 } from '../src/prhealth.js'
 
 /**
@@ -14,7 +15,7 @@ import {
 function pr(over = {}) {
   return {
     number: 1, head: 'integration/x', base: 'main', isDraft: true,
-    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [], headSha: 'abc1234', body: '',
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [], headSha: 'abc1234', body: '', labels: [],
     ...over
   }
 }
@@ -75,20 +76,56 @@ test('selectRung green rung: failure -> fix-ci, pending -> wait', () => {
   )
 })
 
-test('selectRung reviewed rung: review when head unreviewed, stuck past the round cap', () => {
+test('selectRung reviewed rung: review when head unreviewed, triage past the round cap', () => {
   // green (no checks) + draft + no review marker -> review
   assert.equal(selectRung(pr({ headSha: 'abc1234' })).action, 'review')
-  // two prior rounds, head still unreviewed -> stuck (SHAs must be valid hex)
+  // two prior rounds, head still unreviewed -> triage (residual findings judged before
+  // a blanket stuck — LLP 0017; SHAs must be valid hex)
   const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
-  assert.equal(selectRung(pr({ headSha: 'beef999', body })).action, 'stuck')
+  assert.equal(selectRung(pr({ headSha: 'beef999', body })).action, 'triage')
   // a custom round cap is honoured
-  assert.equal(selectRung(pr({ headSha: 'beef999', body: '<!-- neutral-review: abc0001 -->' }), 1).action, 'stuck')
+  assert.equal(selectRung(pr({ headSha: 'beef999', body: '<!-- neutral-review: abc0001 -->' }), 1).action, 'triage')
+})
+
+test('triage markers: parse all SHAs, match any against head, ignore the #issue suffix', () => {
+  const body = 'review\n<!-- neutral-review: abc0001 -->\ntriage\n<!-- neutral-triage: beef999 #42 -->\n'
+  assert.deepEqual(parseTriageMarkers(body), ['beef999'])
+  assert.deepEqual(parseTriageMarkers(''), [])
+  // a triage marker covering head satisfies the reviewed rung even with an issue suffix
+  assert.equal(triagedAtHead(body, 'beef999'), true)
+  assert.equal(triagedAtHead(body, 'beef9990000000000000000000000000000000ff'), true)
+  assert.equal(triagedAtHead(body, 'abc0001'), false) // a review marker is not a triage marker
+  assert.equal(triagedAtHead('', 'beef999'), false)
+})
+
+test('selectRung reviewed rung: a triage marker at head satisfies the rung (LLP 0017)', () => {
+  // residual findings were deferred at this head -> terminal, never re-triaged
+  const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->\n<!-- neutral-triage: beef999 #7 -->'
+  assert.equal(selectRung(pr({ headSha: 'beef999', body, isDraft: true })).action, 'ready-hold')
+  assert.equal(selectRung(pr({ headSha: 'beef999', body, isDraft: false })).action, 'held')
+  // ...the marker is head-keyed: a new head leaves it stale, so the PR is no longer
+  // terminal. The round cap is a lifetime budget (the markers persist), so the fresh head
+  // re-enters triage rather than burning a new review round.
+  assert.equal(selectRung(pr({ headSha: 'cafe123', body })).action, 'triage')
 })
 
 test('selectRung terminal: ready-hold a reviewed draft, held once already ready — never merge', () => {
   const body = '<!-- neutral-review: abc1234 -->'
   assert.equal(selectRung(pr({ headSha: 'abc1234', body, isDraft: true })).action, 'ready-hold')
   assert.equal(selectRung(pr({ headSha: 'abc1234', body, isDraft: false })).action, 'held')
+})
+
+test('selectRung: neutral:stuck label is held for a human and wins over every rung', () => {
+  // A PR neutral gave up on (conflicting, failing, unreviewed) is still HELD, not
+  // churned — the label is the authorization boundary, just like for issues.
+  assert.deepEqual(
+    pick(selectRung(pr({ labels: ['neutral:stuck'], mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', rollup: [{ state: 'FAILURE' }] }))),
+    { rung: 'terminal', action: 'held' }
+  )
+  // A PR that would otherwise be 'review' (unreviewed head) is held while labelled...
+  assert.equal(selectRung(pr({ labels: ['neutral:stuck'], headSha: 'abc1234' })).action, 'held')
+  // ...and the SAME PR without the label is reviewed as normal (the label is the only difference).
+  assert.equal(selectRung(pr({ headSha: 'abc1234' })).action, 'review')
 })
 
 /** @param {import('../src/types.d.ts').RungDecision} d */

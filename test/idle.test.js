@@ -24,6 +24,12 @@ test('a non-empty backlog blocks idle (pipeline family)', () => {
   assert.deepEqual(s.blockers, [{ family: 'pipeline', target: 'llp#42', reason: 'uncovered request — needs a design' }])
 })
 
+test('an implementable (Accepted, merged-to-target) design blocks idle (pipeline family)', () => {
+  const s = idleState({ implementable: [{ number: 45, slug: 'client-attach' }] })
+  assert.equal(s.idle, false)
+  assert.deepEqual(s.blockers, [{ family: 'pipeline', target: 'llp#45', reason: 'accepted design merged to target — needs implementation' }])
+})
+
 test('wait is NOT idle — an in-flight PR keeps the tick open (LLP 0013)', () => {
   const s = idleState({ prs: [{ number: 7, action: 'wait' }] })
   assert.equal(s.idle, false)

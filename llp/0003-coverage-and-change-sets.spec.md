@@ -6,6 +6,7 @@
 **Author:** Phil
 **Date:** 2026-06-23
 **Related:** 0000, 0001, 0002
+**Extended-by:** LLP 0016 — design-first intake (an Accepted design merged to target is a build order; shipped ⇔ Active, not mere presence)
 
 ## Summary
 

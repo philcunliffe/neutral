@@ -85,10 +85,10 @@ export function statusReport(world) {
 /**
  * @param {string} repo
  * @param {string[]} args
- * @returns {number}
+ * @returns {Promise<number>}
  */
-export function statusCommand(repo, args) {
-  const world = observe(repo)
+export async function statusCommand(repo, args) {
+  const world = await observe(repo)
   if (args.includes('--json')) process.stdout.write(JSON.stringify(world, null, 2) + '\n')
   else process.stdout.write(statusReport(world))
   return 0

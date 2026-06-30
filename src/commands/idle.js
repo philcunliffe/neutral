@@ -9,6 +9,7 @@
 import { run } from '../git.js'
 import { loadConfig } from '../config.js'
 import { collectBacklog } from './backlog.js'
+import { collectImplementable } from '../implementable.js'
 import { collectPRs } from './prs.js'
 import { collectIssues } from './issues.js'
 import { idleState } from '../idle.js'
@@ -25,12 +26,13 @@ import { readContextSize } from '../context.js'
  */
 export async function collectIdle(repo, exec = run, readCtx = readContextSize) {
   const { contextRecycleThreshold: threshold } = loadConfig(repo)
-  const [{ backlog }, prs, issues] = await Promise.all([
+  const [{ backlog }, implementable, prs, issues] = await Promise.all([
     collectBacklog(repo),
+    collectImplementable(repo, exec),
     collectPRs(repo, exec),
     collectIssues(repo, exec)
   ])
-  const { idle, blockers } = idleState({ backlog, prs, issues })
+  const { idle, blockers } = idleState({ backlog, implementable, prs, issues })
   const contextSize = readCtx()
   const recycle = idle && contextSize !== null && contextSize > threshold
   return { idle, recycle, contextSize, threshold, blockers }

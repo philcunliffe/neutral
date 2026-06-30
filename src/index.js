@@ -19,7 +19,8 @@ export { inFlightCoveredRefs } from './inflight.js'
 export { listOpenPRs, viewPR, normalizePR, listLabelledIssues, listOpenPRBodies } from './github.js'
 export {
   selectRung, classifyMergeable, rollupConclusion,
-  parseReviewMarkers, reviewRounds, reviewedAtHead
+  parseReviewMarkers, reviewRounds, reviewedAtHead,
+  parseTriageMarkers, triagedAtHead
 } from './prhealth.js'
 export { fixBranchName, fixedIssueNumbers, classifyIssue } from './issuefix.js'
 export { idleState } from './idle.js'

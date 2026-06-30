@@ -32,14 +32,16 @@ test('listOpenPRs returns number+head, and is empty when gh fails (offline)', as
 })
 
 test('normalizePR fills stable defaults from a raw gh object', () => {
-  assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b' }), {
+  assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }] }), {
     number: 3, head: 'integration/y', base: 'main', isDraft: true,
-    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [{ state: 'SUCCESS' }], headSha: 'deadbeef', body: 'b'
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [{ state: 'SUCCESS' }], headSha: 'deadbeef', body: 'b',
+    labels: ['neutral:stuck', 'enhancement']
   })
   // missing fields default rather than throw — UNKNOWN mergeability becomes "wait" downstream
   const d = normalizePR({ number: 4 })
   assert.equal(d.mergeable, 'UNKNOWN')
   assert.deepEqual(d.rollup, [])
+  assert.deepEqual(d.labels, []) // absent labels default to [] (no stuck short-circuit)
 })
 
 test('viewPR observes one PR; null on gh failure', async () => {

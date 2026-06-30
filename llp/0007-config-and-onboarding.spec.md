@@ -54,6 +54,10 @@ them.
 
 ## neutral init
 
+> **Extended-by: [LLP 0015](0015-immutable-llps.decision.md)** — `init` also seeds
+> the LLP-immutability convention into the repo's `CLAUDE.md` so the dual review
+> enforces it. (Forward-ref only; this spec's decided behaviour is unchanged.)
+
 `neutral init` (`src/commands/init.js`): scaffold `.neutral/config.json` and an
 empty `baseline.json` (never overwriting), then **report** what neutral would
 drive — the live-request count, covered / in-flight / baselined counts, and the

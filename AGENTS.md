@@ -21,8 +21,14 @@ for the coverage invariant, change-set DAG, and ready-queue.
   add `// @ref LLP NNNN#anchor — short gloss` (relations: `[implements]`,
   `[constrained-by]`, `[tests]`) directly above the construct — a blank line
   breaks attachment.
-- **Living docs.** Update the LLP when the design changes; land the doc edit in
-  the same commit as the code.
+- **Immutable docs; change is a new request.** An Accepted/Active LLP is a
+  *record*, not a worksheet — don't edit what it decided or required. Express a
+  change by minting a **new request** (`rfc`/`spec`/`issue`) that `@ref`s what it
+  supersedes, and append a `Superseded-by:`/`Extended-by: LLP NNNN` forward-ref
+  to the applicable parts of the old doc. Trivial editorial fixes (typos, links,
+  forward-refs) are fine; Drafts are still editable. The new request rides the
+  existing coverage trigger — no new mechanism. See
+  [LLP 0015](llp/0015-immutable-llps.decision.md).
 
 ## The one non-negotiable: ground truth, never self-report
 

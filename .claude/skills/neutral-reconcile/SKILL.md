@@ -47,14 +47,18 @@ work, the tick verifies it.
 2. **Observe every gap** (the loop's eyes — all CLI, no LLM judgement):
    - **Pipeline family**
      - `neutral backlog --json` → live requests needing a design (Designer).
-     - neutral-minted `design` LLPs (`**Generated-by:** neutral`) without a `plan`
-       (Impl-designer) — read each `integration/*` branch's LLPs.
+     - `neutral implementable --json` → `Accepted` designs merged to the target with
+       no `integration/<slug>` yet — **design-first** work owed an implementation
+       (Impl-designer's *seed* path; LLP 0016). A human did the Designer step by hand.
+     - a `design` LLP without a `plan` (Impl-designer's *plan* path): neutral-minted
+       designs on `integration/*` branches, plus any change set just seeded from an
+       `implementable` design.
      - change sets with a `plan` but unmerged tasks (`neutral ready <slug> --json`).
    - **Maintenance family**
      - `neutral prs --json` → every in-scope open PR (own `integration/*` and
        `fix/issue-*`) with the **single rung action** `reconcilePR` should take this
-       tick (`merge-base | resolve-conflict | fix-ci | review | ready-hold | wait |
-       stuck | held`). The CLI decides the rung from observed state — you act, you do
+       tick (`merge-base | resolve-conflict | fix-ci | review | triage | ready-hold |
+       wait | held`). The CLI decides the rung from observed state — you act, you do
        not re-decide.
      - `neutral issues --json` → every open `neutral:fix` issue with its fix-attempt
        state (`needs-fix | attempt-exists | stuck`).
@@ -151,7 +155,18 @@ up front and mint **all** change sets in one pass (do not dribble one group per 
 
 ## Fan-out worker: Impl-designer (pipeline)
 
-Goal: every neutral-minted `design` LLP has a `plan` LLP.
+Goal: every implementable `design` LLP has a `plan` LLP on its `integration/<slug>`
+branch. A design is implementable two ways: **neutral-minted** (already on
+`integration/<slug>` from the Designer), or **design-first** (LLP 0016) — a human merged
+a `design` to the target at `**Status:** Accepted`, surfaced by `neutral implementable`.
+
+**Design-first only — seed the branch first** (idempotent; skip if it exists): in a
+detached worktree off the target, create `integration/<slug>` so the change set has a
+branch (the design rides along from the target) —
+`WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<DEFAULT> && cd "$WT" && git push origin HEAD:integration/<slug> && cd <repo> && git worktree remove --force "$WT"`.
+The implementation later flips the design `Accepted → Active` (a lifecycle move, not a
+content edit — immutability holds) so the merged change set reads as shipped (LLP 0016
+§Shipped is Active). Then proceed below for both kinds:
 
 1. In its **own detached worktree** (never the main checkout, LLP 0012):
    `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/integration/<slug> && cd "$WT"`.
@@ -233,8 +248,26 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   next tick re-reviews the new head (round 2); if the review was clean the marker now
   covers the current head and the PR is terminal. The CLI bounds this to **N=2**
   rounds before it returns `stuck`.
-- **`stuck`** (rung 3, unresolved past N rounds): label the PR `neutral:stuck`,
-  comment the unresolved findings, surface it — do not churn.
+- **`triage`** (rung 3, review rounds exhausted at an unreviewed head): the fix-loop hit
+  `maxReviewRounds` with findings still open. **Before parking the PR, judge whether it can
+  ship safely** (LLP 0017). Dispatch ONE agent in its **own worktree** to re-read every
+  **unresolved** finding from the last review and classify each as a **true blocker** —
+  could cause a *production* defect (wrong behaviour, data loss, a security hole, a crash, a
+  perf regression past budget) — or a **preference** (style, naming, a test nicety, a
+  non-behavioural refactor). Then, **all-or-nothing**:
+  - **Every residual finding is non-blocking** → the PR can merge safely. **Idempotently**
+    open a follow-up issue (skip if an open `neutral:fix` follow-up for this PR already
+    exists): `gh issue create` titled `Follow-up: deferred review findings from PR #N`,
+    labelled `neutral:fix`, body enumerating each deferred finding **+ a backlink to PR #N**.
+    Comment on the PR linking the issue. Then append `<!-- neutral-triage: <the head SHA> #M -->`
+    to the PR body (`gh pr edit N --body …`) — **last**, so a partial failure re-triages
+    rather than skipping. The marker satisfies the reviewed rung; **next tick** the PR is
+    terminal → `ready-hold` flips it `gh pr ready` and HOLDS for a human to merge. The
+    deferred findings ride the issue-fix reconciler (the invariants compose — LLP 0008).
+  - **Any residual finding is a true blocker** → it cannot merge safely. Comment **why** each
+    blocker is a production risk (list the non-blockers too — the human sees the whole PR),
+    label the PR `neutral:stuck`, surface it — do not split, do not churn.
+  Skip entirely if a `neutral-triage` marker already covers the head (already triaged).
 - **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
   `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
   not own.
@@ -315,9 +348,10 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
 
 ```sh
 git fetch --prune
-neutral backlog --json     # pipeline: any design work?
-neutral prs --json         # maintenance: each in-scope PR's next rung action
-neutral issues --json      # maintenance: each neutral:fix issue's state
+neutral backlog --json        # pipeline: any request needing a design?
+neutral implementable --json  # pipeline: any Accepted design merged to target, owed code? (LLP 0016)
+neutral prs --json            # maintenance: each in-scope PR's next rung action
+neutral issues --json         # maintenance: each neutral:fix issue's state
 # then fan out the branch-disjoint workers above and re-derive from git.
 neutral idle --json        # end of tick: idle ∧ context>T ? recycle the pane (LLP 0013)
 ```

@@ -5,7 +5,7 @@
 // is chosen per tick: any push moves the head SHA, so every downstream fact is
 // re-derived next tick rather than stacked on a stale read.
 // @ref LLP 0009#pr-health-reconciler [implements] — the rung ladder + one-rung-per-tick
-import { DEFAULT_REVIEW_ROUNDS } from './config.js'
+import { DEFAULT_REVIEW_ROUNDS, STUCK_LABEL } from './config.js'
 
 /** @import { PrObservation, RungDecision } from './types.d.ts' */
 
@@ -13,6 +13,14 @@ import { DEFAULT_REVIEW_ROUNDS } from './config.js'
 // head is not re-reviewed every tick and a new head re-opens review.
 // @ref LLP 0009#pr-health-reconciler [implements] — head-SHA review marker
 const REVIEW_MARKER_RE = /<!--\s*neutral-review:\s*([0-9a-f]{7,40})\s*-->/gi
+
+// `<!-- neutral-triage: <headSha> #M -->` — the head at which the review fix-loop hit
+// `maxReviewRounds` and the residual findings were judged non-blocking and DEFERRED to
+// follow-up issue #M. Head-keyed exactly like the review marker: an unchanged head reads
+// as reviewed (the findings rode off to #M), a new head re-opens review. `#M` is the
+// follow-up issue, carried for audit (the SHA is what the predicate keys on).
+// @ref LLP 0017 [implements] — triage-at-cap defers non-blockers and ships
+const TRIAGE_MARKER_RE = /<!--\s*neutral-triage:\s*([0-9a-f]{7,40})\b[^>]*-->/gi
 
 /**
  * SHAs of every neutral-review marker in a PR body, in document order. The count is
@@ -62,6 +70,34 @@ export function reviewedAtHead(body, headSha) {
   const shas = parseReviewMarkers(body)
   if (!shas.length || !headSha) return false
   return shaEq(shas[shas.length - 1], headSha)
+}
+
+/**
+ * SHAs of every neutral-triage marker in a PR body, in document order. Each marks a head
+ * at which review rounds were exhausted and the residual findings were deferred to a
+ * `neutral:fix` follow-up (LLP 0017).
+ * @param {string} body
+ * @returns {string[]}
+ */
+export function parseTriageMarkers(body) {
+  /** @type {string[]} */
+  const shas = []
+  for (const m of String(body || '').matchAll(TRIAGE_MARKER_RE)) shas.push(m[1].toLowerCase())
+  return shas
+}
+
+/**
+ * True iff a triage marker covers the current head SHA — the review fix-loop was exhausted
+ * at this head and its residual findings were judged non-blocking and deferred (LLP 0017),
+ * so the reviewed rung is satisfied. A new head leaves no covering marker, re-opening
+ * review exactly as `reviewedAtHead` does (LLP 0002: a triage of a prior commit is stale).
+ * @param {string} body
+ * @param {string} headSha
+ * @returns {boolean}
+ */
+export function triagedAtHead(body, headSha) {
+  if (!headSha) return false
+  return parseTriageMarkers(body).some(sha => shaEq(sha, headSha))
 }
 
 /**
@@ -133,6 +169,18 @@ export function rollupConclusion(rollup) {
  * @ref LLP 0009#pr-health-reconciler [implements]
  */
 export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS) {
+  // Held for a human — wins over every rung. neutral sets `neutral:stuck` when it
+  // cannot auto-advance a PR (an unresolved review finding, a design decision it
+  // will not guess at, a conflict it backed off). The label is the authorization
+  // boundary, exactly as it is for issues (issuefix.js): once set, the loop surfaces
+  // the PR and must NOT churn it — re-review/merge-base/fix-ci would all loop forever
+  // on a PR a human has been asked to look at. `held` (not `stuck`) because the label
+  // already exists; re-emitting `stuck` would re-label and re-comment every tick.
+  // @ref LLP 0009#pr-health-reconciler [constrained-by] — neutral:stuck halts auto-advance
+  if ((pr.labels || []).includes(STUCK_LABEL)) {
+    return { rung: 'terminal', action: 'held', reason: `labeled ${STUCK_LABEL} — held for a human (won't auto-advance)` }
+  }
+
   // Rung 1 — mergeable.
   const m = classifyMergeable(pr.mergeable, pr.mergeStateStatus)
   if (m === 'wait') return { rung: 'mergeable', action: 'wait', reason: 'mergeability UNKNOWN — GitHub still computing' }
@@ -144,10 +192,14 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS) {
   if (g === 'FAILURE') return { rung: 'green', action: 'fix-ci', reason: 'checks failing at head — fix from the failing logs' }
   if (g === 'PENDING') return { rung: 'green', action: 'wait', reason: 'checks pending at head — wait (no fix-storm mid-run)' }
 
-  // Rung 3 — reviewed (keyed to the current head SHA).
-  if (!reviewedAtHead(pr.body, pr.headSha)) {
+  // Rung 3 — reviewed (keyed to the current head SHA). A head counts as reviewed by a
+  // clean review marker OR a triage marker: at the round cap, residual findings judged
+  // non-blocking are deferred to a `neutral:fix` follow-up and the head ships (LLP 0017),
+  // so a triage marker satisfies this rung just as a review marker does.
+  // @ref LLP 0017 [implements] — triage at the cap replaces a blanket stuck
+  if (!reviewedAtHead(pr.body, pr.headSha) && !triagedAtHead(pr.body, pr.headSha)) {
     if (reviewRounds(pr.body) >= maxReviewRounds) {
-      return { rung: 'reviewed', action: 'stuck', reason: `unresolved after ${maxReviewRounds} review round(s) — label neutral:stuck` }
+      return { rung: 'reviewed', action: 'triage', reason: `${maxReviewRounds} review round(s) exhausted — triage residual findings (defer non-blockers to neutral:fix, else neutral:stuck)` }
     }
     return { rung: 'reviewed', action: 'review', reason: 'head not yet reviewed — run the review, fix findings, mark the reviewed head' }
   }

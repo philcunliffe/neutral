@@ -24,20 +24,24 @@ const PR_AT_REST = 'held'
  * nothing is in flight (LLP 0008):
  *
  *   - `neutral backlog` is empty (no uncovered request LLP), AND
+ *   - `neutral implementable` is empty (no Accepted design owed an implementation), AND
  *   - every in-scope PR's action is `held` (terminal), AND
  *   - no issue is `needs-fix`.
  *
  * `stuck` issues/PRs do NOT block idle — neutral can do nothing autonomous about them
  * (a human must look); they are surfaced, not in flight.
- * @param {{ backlog?: Array<{number?: number, title?: string}>, prs?: Array<{number: number, action: string}>, issues?: Array<{number: number, state: string}> }} obs
+ * @param {{ backlog?: Array<{number?: number, title?: string}>, implementable?: Array<{number: number, slug?: string}>, prs?: Array<{number: number, action: string}>, issues?: Array<{number: number, state: string}> }} obs
  * @returns {IdleState}
  * @ref LLP 0013#trigger [implements]
  */
-export function idleState({ backlog = [], prs = [], issues = [] } = {}) {
+export function idleState({ backlog = [], implementable = [], prs = [], issues = [] } = {}) {
   /** @type {IdleBlocker[]} */
   const blockers = []
   for (const r of backlog) {
     blockers.push({ family: 'pipeline', target: `llp#${r.number ?? '?'}`, reason: 'uncovered request — needs a design' })
+  }
+  for (const d of implementable) {
+    blockers.push({ family: 'pipeline', target: `llp#${d.number}`, reason: 'accepted design merged to target — needs implementation' })
   }
   for (const p of prs) {
     if (p.action !== PR_AT_REST) {
