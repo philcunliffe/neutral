@@ -165,10 +165,11 @@ export function rollupConclusion(rollup) {
  * eventually-consistent cases (LLP 0002): the loop re-observes next tick.
  * @param {PrObservation} pr
  * @param {number} [maxReviewRounds]
+ * @param {boolean} [automerge]  opt-in (LLP 0019): terminal = merge, not hold
  * @returns {RungDecision}
  * @ref LLP 0009#pr-health-reconciler [implements]
  */
-export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS) {
+export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerge = false) {
   // Held for a human — wins over every rung. neutral sets `neutral:stuck` when it
   // cannot auto-advance a PR (an unresolved review finding, a design decision it
   // will not guess at, a conflict it backed off). The label is the authorization
@@ -204,7 +205,12 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS) {
     return { rung: 'reviewed', action: 'review', reason: 'head not yet reviewed — run the review, fix findings, mark the reviewed head' }
   }
 
-  // Terminal — mergeable ∧ green ∧ reviewed: hold for a human, never merge.
+  // Terminal — mergeable ∧ green ∧ reviewed: hold for a human, never merge —
+  // unless the repo owner moved that boundary. Automerge changes only this rung:
+  // every gate above (fresh-head green, fresh-head review, the stuck override)
+  // was already satisfied to get here.
+  // @ref LLP 0019 [implements] — opt-in automerge relaxes the hold, never the gates
+  if (automerge) return { rung: 'terminal', action: 'merge', reason: 'mergeable ∧ green ∧ reviewed, automerge on — flip ready if draft, then squash-merge' }
   if (pr.isDraft) return { rung: 'terminal', action: 'ready-hold', reason: 'mergeable ∧ green ∧ reviewed — flip ready, then HOLD' }
   return { rung: 'terminal', action: 'held', reason: 'already held for a human — nothing to do' }
 }

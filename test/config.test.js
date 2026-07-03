@@ -51,6 +51,24 @@ test('loadConfig accepts a positive integer maxReviewRounds, else keeps the defa
   }
 })
 
+test('loadConfig accepts a boolean automerge, else keeps the default (off)', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
+  try {
+    assert.equal(DEFAULT_CONFIG.automerge, false) // hold-for-a-human is the default (LLP 0019)
+    mkdirSync(join(repo, '.neutral'))
+    /** @param {unknown} v */
+    const write = (v) => writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ automerge: v }))
+    write(true)
+    assert.equal(loadConfig(repo).automerge, true)
+    write(false)
+    assert.equal(loadConfig(repo).automerge, false)
+    write('true')                                                     // not a boolean -> default
+    assert.equal(loadConfig(repo).automerge, false)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('a config can remap `plan` out of the design role', () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
   try {

@@ -115,6 +115,23 @@ test('selectRung terminal: ready-hold a reviewed draft, held once already ready 
   assert.equal(selectRung(pr({ headSha: 'abc1234', body, isDraft: false })).action, 'held')
 })
 
+test('selectRung terminal with automerge on: merge instead of hold, gates unchanged (LLP 0019)', () => {
+  const body = '<!-- neutral-review: abc1234 -->'
+  const AUTOMERGE = true
+  // draft and already-ready both merge — the skill flips ready first when needed
+  assert.deepEqual(
+    pick(selectRung(pr({ headSha: 'abc1234', body, isDraft: true }), 2, AUTOMERGE)),
+    { rung: 'terminal', action: 'merge' }
+  )
+  assert.equal(selectRung(pr({ headSha: 'abc1234', body, isDraft: false }), 2, AUTOMERGE).action, 'merge')
+  // automerge relaxes only the hold: an unmet lower rung is still chosen first...
+  assert.equal(selectRung(pr({ headSha: 'beef999', body }), 2, AUTOMERGE).action, 'review')       // stale review
+  assert.equal(selectRung(pr({ mergeStateStatus: 'BEHIND', body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'merge-base')
+  assert.equal(selectRung(pr({ rollup: [{ status: 'IN_PROGRESS' }], body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'wait')
+  // ...and neutral:stuck still wins — a human-held PR is never automerged.
+  assert.equal(selectRung(pr({ labels: ['neutral:stuck'], body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'held')
+})
+
 test('selectRung: neutral:stuck label is held for a human and wins over every rung', () => {
   // A PR neutral gave up on (conflicting, failing, unreviewed) is still HELD, not
   // churned — the label is the authorization boundary, just like for issues.

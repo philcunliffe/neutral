@@ -88,6 +88,9 @@ The task breakdown lives in the `plan` LLP as a block the Engine parses:
 `id` is unique within the change set; `deps` are task ids; `branch` merges into
 the change set's integration branch.
 
+Extended-by: 0022 — the task line may carry an optional `complexity: 1–5`
+rating (the model-tier seed for the first attempt).
+
 ## Ready-queue (the unblocked-open list)
 
 The git-native `bd ready`, split into a declared part and a derived part:

@@ -24,7 +24,7 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
  * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, rung: string, action: string, reason: string}>>}
  */
 export async function collectPRs(repo, exec = run) {
-  const { maxReviewRounds } = loadConfig(repo)
+  const { maxReviewRounds, automerge } = loadConfig(repo)
   const open = await listOpenPRs(repo, exec)
   const own = open.filter(p => OWN_HEAD_RE.test(p.headRefName))
   /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, rung: string, action: string, reason: string}>} */
@@ -32,7 +32,7 @@ export async function collectPRs(repo, exec = run) {
   for (const p of own) {
     const obs = await viewPR(repo, p.number, exec)
     if (!obs) continue
-    const decision = selectRung(obs, maxReviewRounds)
+    const decision = selectRung(obs, maxReviewRounds, automerge)
     out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, ...decision })
   }
   return out

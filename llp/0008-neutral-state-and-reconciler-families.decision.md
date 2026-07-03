@@ -56,6 +56,10 @@ never neutral's; it drives every artifact to *held, review-passing, healthy* and
 waits (LLP 0000 §Autonomy). "No unresolved request" therefore means "every
 request has a held PR," not "every request is merged."
 
+> **Extended-by [LLP 0019](0019-automerge.decision.md):** a repo owner may move
+> this boundary per repo — the opt-in `automerge` config flag lets the terminal
+> rung merge a finished PR instead of holding it. Default unchanged (hold).
+
 Reconcilers split into two families, sharing one spine:
 
 - **Pipeline family** — intake is a request LLP; output is a held change-set PR.

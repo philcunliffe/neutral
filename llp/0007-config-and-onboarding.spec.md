@@ -33,6 +33,10 @@ file → defaults. Tracked (not gitignored). Fields:
   how many review rounds a PR may go through before neutral surfaces it as stuck
   instead of churning it (see [LLP 0009](0009-maintenance-reconcilers.spec.md)).
 
+> **Extended-by [LLP 0019](0019-automerge.decision.md):** adds an `automerge`
+> field (default `false`) — opt-in per repo to let the terminal reconcilePR rung
+> squash-merge a finished PR instead of holding it for a human.
+
 ## Baseline
 
 `.neutral/baseline.json` (tracked) lists request LLPs that already existed / were

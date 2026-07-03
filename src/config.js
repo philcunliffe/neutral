@@ -52,6 +52,12 @@ export const DEFAULT_CONFIG = {
   // The reconcilePR review-rung fix-loop bound (LLP 0009): how many review rounds a
   // PR may go through before neutral surfaces it as stuck instead of churning it.
   maxReviewRounds: DEFAULT_REVIEW_ROUNDS,
+  // Opt-in: let the terminal reconcilePR rung squash-merge a finished PR
+  // (mergeable ∧ green ∧ reviewed) instead of holding it for a human. Off by
+  // default — the hold-for-a-human boundary (LLP 0008) stands unless the repo
+  // owner moves it here, in a tracked, reviewed file.
+  // @ref LLP 0019 [implements] — automerge relaxes the hold, never the gates
+  automerge: false,
   // Context-autophagy trigger threshold T, in tokens (LLP 0013). Per-repo tunable.
   contextRecycleThreshold: DEFAULT_CONTEXT_THRESHOLD
 }
@@ -79,6 +85,7 @@ function merge(base, over) {
     maxReviewRounds: Number.isInteger(o.maxReviewRounds) && o.maxReviewRounds > 0
       ? o.maxReviewRounds
       : base.maxReviewRounds,
+    automerge: typeof o.automerge === 'boolean' ? o.automerge : base.automerge,
     contextRecycleThreshold: Number.isInteger(o.contextRecycleThreshold) && o.contextRecycleThreshold > 0
       ? o.contextRecycleThreshold
       : base.contextRecycleThreshold

@@ -119,6 +119,11 @@ flipped `gh pr ready` and left for a human to merge — never auto-merged
 (LLP 0000 §Autonomy). Merging is the one act neutral never performs; it is also
 what, via the change-set DAG, unblocks dependents (LLP 0003).
 
+> **Extended-by [LLP 0019](0019-automerge.decision.md):** when the repo opts in
+> (`automerge: true` in `.neutral/config.json`) the terminal rung emits `merge`
+> instead of `ready-hold`/`held` — flip ready if draft, then squash-merge. The
+> three rungs and the `neutral:stuck` override are unchanged.
+
 **Reuse.** `reconcilePR` is shared with the pipeline family — the Reviewer
 reconciler (LLP 0000) becomes rung 3 plus the new mergeable/green rungs — so
 neutral's own change-set PRs gain the CI and mergeability self-healing the pipeline

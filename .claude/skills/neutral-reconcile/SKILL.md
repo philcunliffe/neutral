@@ -1,6 +1,6 @@
 ---
 name: neutral-reconcile
-description: Run one reconcile tick of neutral — observe git/GitHub ground truth across both reconciler families (LLP→PR pipeline + PR/issue maintenance), fan out every branch-disjoint gap in parallel, fan in serial verified merges, and re-derive "done" from git. Holds every result for a human; never merges. Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to drive a repo toward neutral state, or to run one tick by hand.
+description: Run one reconcile tick of neutral — observe git/GitHub ground truth across both reconciler families (LLP→PR pipeline + PR/issue maintenance), fan out every branch-disjoint gap in parallel, fan in serial verified merges, and re-derive "done" from git. Holds every result for a human; never merges unless the repo opts in (`automerge`, LLP 0019). Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to drive a repo toward neutral state, or to run one tick by hand.
 allowed-tools: Bash, Read, Write, Edit, Agent, Skill, Workflow
 ---
 
@@ -15,7 +15,10 @@ The goal is **neutral state** (LLP 0008): every gap neutral can close *autonomou
 is closed — no uncovered request LLP, no `neutral:fix` issue without a fix attempt,
 no in-scope PR left unmergeable / failing / unreviewed. Neutral stops at the
 boundary of what only a human may do: **merging is the one act neutral never
-performs.** It drives every artifact to *held, green, reviewed* and waits.
+performs** — unless the repo owner moved that boundary with `automerge: true`
+in `.neutral/config.json` (LLP 0019), in which case the terminal rung merges
+instead of holding. By default it drives every artifact to *held, green,
+reviewed* and waits.
 
 ## The one rule — ground truth, never self-report (LLP 0002)
 
@@ -271,6 +274,14 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
 - **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
   `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
   not own.
+- **`merge`** (terminal, only when the repo opted in with `automerge: true` —
+  LLP 0019): `gh pr ready <N>` if still a draft, then `gh pr merge <N> --squash`
+  (squash-only-at-the-final-PR, as for a human merge). No `--delete-branch` — the
+  Handoff stage owns cleanup. The CLI emits this action *only* when all three rungs
+  hold at the current head and the PR is not `neutral:stuck`; if the merge is
+  refused (branch protection), leave it — next tick re-observes. **Verify like a
+  human merge:** next tick the design LLP on `origin/<DEFAULT>` /
+  `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
 - **`wait`** / **`held`**: do nothing this tick.
 
 ## Fan-out worker: Issue-fix (maintenance, LLP 0009)
@@ -320,8 +331,11 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
 - **One `/loop` session per repo.** Parallelism is *intra-tick* via sub-agents;
   exactly one orchestrator touches the repo (LLP 0010). Two reconcilers racing the
   same repo is unsafe — nothing in git prevents it, so don't.
-- **Never merge.** Merging is the one irreversible act, always a human's. Drive to
-  held + green + reviewed and stop.
+- **Never merge — unless the CLI's rung says `merge`.** Merging is the one
+  irreversible act, a human's by default; drive to held + green + reviewed and
+  stop. The single exception is the repo opting in via `automerge: true`
+  (LLP 0019), and even then only the `neutral prs` action decides — never merge
+  on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
 - **Never `gh pr ready` (or otherwise act on) a PR neutral does not own.** In scope
   today: own `integration/*` and `fix/issue-*` only. **Foreign-PR adoption

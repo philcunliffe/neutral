@@ -66,6 +66,8 @@ export interface NeutralConfig {
   liveStatuses: string[]
   /** reconcilePR review-rung fix-loop bound before a PR is surfaced as stuck. */
   maxReviewRounds: number
+  /** Opt-in (LLP 0019): terminal rung squash-merges a finished PR instead of holding it. */
+  automerge: boolean
   /** Context-autophagy trigger threshold T, in tokens (LLP 0013). */
   contextRecycleThreshold: number
 }
@@ -107,11 +109,13 @@ export interface RungDecision {
   /** mergeable | green | reviewed | terminal. */
   rung: string
   /**
-   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | held.
+   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge | held.
    * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
    * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
    * (shipping the PR) or sets the `neutral:stuck` label itself (LLP 0017). `selectRung` no
    * longer emits `stuck` as an action — the label, once set, short-circuits to `held`.
+   * `merge` is the terminal action only when the repo opted in (`automerge`, LLP 0019):
+   * flip ready if draft, then squash-merge — instead of `ready-hold`/`held`.
    */
   action: string
   reason: string
