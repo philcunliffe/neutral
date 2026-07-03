@@ -41,6 +41,12 @@ export interface Task {
   branch: string
   deps: string[]
   brief?: string
+  /**
+   * Planner-rated complexity 1–5 (LLP 0022): the model-tier seed for the task's
+   * first implementation attempt (1–3 → mechanical, 4 → worker, 5 → judgment).
+   * Absent ⇒ mechanical. Seeds only the entry rung of the LLP 0021 ladder.
+   */
+  complexity?: number
 }
 
 export interface ReadyResult {

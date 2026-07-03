@@ -13,8 +13,16 @@ import { run } from '../git.js'
 // Fallback session name and per-repo prefix. The live name is per-repo (`sessionName`);
 // this bare form is used only when the repo folder sanitizes to empty (e.g. repo === '/').
 export const ORCHESTRATOR_SESSION = 'neutral'
+// The orchestrator runs on the WORKER tier (LLP 0020): the tick is deliberately
+// mechanical — the CLI decides every rung, fan-in is git commands — so it does not
+// need the judgment tier, and it is the single largest spend. Pinned explicitly so a
+// respawn (LLP 0013) or a machine with a different session default can't silently
+// revert it. `opus` = Opus 4.8; prefer its 1M-context variant so the loop's context can
+// grow to the autophagy threshold T (LLP 0013) before recycling.
+// @ref LLP 0020#decision [implements] — orchestrator = worker tier, pinned at launch
+export const ORCHESTRATOR_MODEL = 'opus'
 // The loop, as one shell-command string tmux runs via `sh -c`.
-export const LOOP_SHELL_COMMAND = "claude '/loop /neutral-reconcile'"
+export const LOOP_SHELL_COMMAND = `claude --model ${ORCHESTRATOR_MODEL} '/loop /neutral-reconcile'`
 
 /**
  * The orchestrator's tmux session name for a repo: `neutral-<repo-folder>` (e.g.

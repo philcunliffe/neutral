@@ -1,7 +1,7 @@
 # LLP 0022: Planner-rated complexity seeds the first-attempt tier
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Core, Engine, Engineer
 **Author:** Phil / Claude
 **Date:** 2026-07-03

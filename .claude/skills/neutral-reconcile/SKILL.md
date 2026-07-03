@@ -114,10 +114,13 @@ tick's log lines (R2 — nothing may follow this destructive act):
   `tick: family=autophagy action=recycle detail=context=<N> threshold=<T>`, then
   **respawn the pane** — the tick's last act:
   ```sh
-  tmux respawn-pane -k "claude '/loop /neutral-reconcile'"
+  tmux respawn-pane -k "claude --model opus '/loop /neutral-reconcile'"
   ```
-  No `-t`: tmux defaults to the **current pane** (`$TMUX_PANE`), so the respawn targets
-  the very pane the loop runs in — independent of the per-repo session name (LLP 0014).
+  **Pin `--model opus`** (the worker tier, matching `neutral start` — LLP 0020): an
+  unpinned respawn silently reverts the fresh orchestrator to the machine's session
+  default, which may be a different tier. No `-t`: tmux defaults to the **current pane**
+  (`$TMUX_PANE`), so the respawn targets the very pane the loop runs in — independent of
+  the per-repo session name (LLP 0014).
   `respawn-pane -k` atomically kills this session and starts a fresh `/loop` in the
   **same pane** — the pane is the one-orchestrator mutex, so no successor can overlap
   the predecessor (R4, LLP 0010). The fresh session re-`observe`s every gap from
@@ -130,7 +133,35 @@ tick's log lines (R2 — nothing may follow this destructive act):
 A respawn resets the transcript to baseline, so autophagy **self-rate-limits** (R5):
 it cannot fire again until context regrows past T (tens of idle ticks).
 
-## Fan-out worker: Designer (pipeline)
+## Model tiering — the verifier picks the model (LLP 0020–0022)
+
+Dispatch is tiered by **what checks the output**, not by how hard the input looks
+(LLP 0020). Because "done" is re-derived from git/CI and never self-reported, a weak
+model's failure just re-opens the gap — so cheap models run wherever a verifier gates
+the result, and the strongest is reserved for judgement no machine re-checks. When you
+dispatch a worker below, pass the tier's model as the sub-agent's `model`:
+
+- **Judgment tier — `fable`.** Output no verifier re-derives, where an error
+  propagates: the **Designer**, the **Impl-designer**, and the **triage** rung.
+- **Worker tier — `opus` (Opus 4.8).** Bounded work behind a hard gate: **conflict
+  resolution**, **issue-fix**, the Claude half of **review**, and the **orchestrator
+  itself** (pinned at launch — LLP 0020; the tick is mechanical, the CLI decides every
+  rung).
+- **Mechanical tier — `sonnet`, or `haiku` for pure CLI relay.** Fully verifier-gated
+  execution: **task implementation** and its **serial merger**, **fix-ci**,
+  **review-fix** agents, and **derive-ready** (haiku). The implement Workflow already
+  sets these per `agent()` call.
+
+**Retry escalation (LLP 0021/0022).** A task's *first* attempt starts at the tier its
+planner-rated `complexity` seeds (1–3 mechanical, 4 worker, 5 judgment; absent ⇒
+mechanical). It retries in place until it exhausts that tier's budget of **verified**
+failures — mechanical 5, worker 3, judgment 2 — then climbs one tier; judgment-tier
+exhaustion is `neutral:stuck`. Every LLP 0002 gate applies identically at every tier:
+escalation changes *which model retries*, never *what counts as done*. The implement
+Workflow's wave loop owns this ladder end-to-end; the other rungs below take a single
+tier per their heading.
+
+## Fan-out worker: Designer (pipeline)  — judgment tier (`fable`)
 
 Goal: every live request is `@ref`'d by a `design` LLP. Plan the **whole** backlog
 up front and mint **all** change sets in one pass (do not dribble one group per tick).
@@ -156,7 +187,7 @@ up front and mint **all** change sets in one pass (do not dribble one group per 
      the remote branch); then `cd <repo> && git worktree remove --force "$WT"`.
 4. **Verify:** `neutral backlog` is now **empty**. Never commit a design to the target branch.
 
-## Fan-out worker: Impl-designer (pipeline)
+## Fan-out worker: Impl-designer (pipeline)  — judgment tier (`fable`)
 
 Goal: every implementable `design` LLP has a `plan` LLP on its `integration/<slug>`
 branch. A design is implementable two ways: **neutral-minted** (already on
@@ -178,17 +209,28 @@ content edit — immutability holds) so the merged change set reads as shipped (
    independently-mergeable tasks; write a `## Tasks` block in the parser's format:
    ```
    ## Tasks
-   - id: T1  branch: task/<slug>/T1  deps: []        -- <brief>
-   - id: T2  branch: task/<slug>/T2  deps: [T1]      -- <brief>
+   - id: T1  branch: task/<slug>/T1  deps: []        complexity: 2  -- <brief>
+   - id: T2  branch: task/<slug>/T2  deps: [T1]      complexity: 5  -- <brief>
    ```
-   Encode real code dependencies in `deps`.
+   Encode real code dependencies in `deps`. **Rate each task's `complexity` 1–5**
+   (LLP 0022) — your judgement, made here with the whole design in view, seeds the
+   first implementation attempt's model tier: **1–3** a mechanical task (Sonnet),
+   **4** needs the worker tier (Opus 4.8), **5** needs judgement (Fable). Rate for
+   the *hardest* part of the task; be honest, not generous — the rating only seeds
+   the entry rung and a verified failure still escalates (LLP 0021), so under-rating
+   costs one climbing attempt, over-rating overpays. Omit `complexity` only when you
+   truly can't tell; absent reads as mechanical.
 3. **Commit + push:** `git add llp/ && git commit && git push origin HEAD:integration/<slug>`.
 4. **Verify** from the worktree: `neutral ready <slug> --json` parses and lists the
    tasks. Then `cd <repo> && git worktree remove --force "$WT"`.
 
-## Fan-out worker: Implement (pipeline, the wave-loop Workflow)
+## Fan-out worker: Implement (pipeline, the wave-loop Workflow)  — tiered per task
 
-Goal: every task is a verified-merged commit on `integration/<slug>`.
+Goal: every task is a verified-merged commit on `integration/<slug>`. The Workflow
+sets each agent's model itself (LLP 0020–0022): `derive-ready` on `haiku`, the serial
+merger on `sonnet`, and each task's implementer on its current ladder tier — entering
+at the planner's `complexity` rating and escalating on verified failure. You pass no
+model here; you only re-verify and label what it returns stuck.
 
 1. **Prune** stale worktrees: `git worktree prune`.
 2. Ensure `integration/<slug>` is **current**: if its `Depends-on:` predecessors are
@@ -204,8 +246,10 @@ Goal: every task is a verified-merged commit on `integration/<slug>`.
 4. **Re-verify every merge from git** after it returns — the report is a hint.
    `neutral ready <slug> --json`: each claimed-done task must be a real ancestor of
    `integration/<slug>`. Re-dispatch anything claimed-but-not-landed (idempotent).
-   After **K=3** failed attempts on a task, stop, label its PR `neutral:stuck`,
-   comment why, surface it — do not loop forever.
+   The wave loop escalates a failing task up the model ladder in place and only gives
+   up once the **judgment tier** exhausts its budget (LLP 0021) — it returns those
+   task ids in `stuck`. For each, label its PR `neutral:stuck`, comment why, surface
+   it — do not re-dispatch a stuck task this tick.
 
 Then the change set's PR is driven by **reconcilePR** below (the shared spine).
 
@@ -230,20 +274,26 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<pr-branch> && cd "$WT" && git merge --no-edit origin/<DEFAULT> && git push origin HEAD:<pr-branch>`,
   then `cd <repo> && git worktree remove --force "$WT"`. Re-observes next tick.
 - **`resolve-conflict`** (rung 1, `DIRTY` — the **highest-blast-radius** action):
-  dispatch ONE agent in its own worktree. It resolves the conflict and must get a
+  dispatch ONE agent (**worker tier — `opus`**, LLP 0020) in its own worktree. It
+  resolves the conflict and must get a
   **green local test run BEFORE pushing**. The local run is a *precaution only*; CI
   (the green rung) is the authoritative gate after the push (LLP 0002 — the resolving
   agent does not grade its own merge). If it cannot get a clean resolution + green
   local run, it **backs off (no push)** and the PR is labelled `neutral:stuck`.
-- **`fix-ci`** (rung 2, `FAILURE`): dispatch ONE agent to fix from the failing logs
-  (`gh run view --log-failed`), in its own worktree, push. Re-observes next tick.
+- **`fix-ci`** (rung 2, `FAILURE`): dispatch ONE agent (**mechanical tier —
+  `sonnet`**, LLP 0020 — usually a lint/dep/flaky fix, and CI re-observes next tick)
+  to fix from the failing logs (`gh run view --log-failed`), in its own worktree,
+  push. Re-observes next tick.
 - **`review`** (rung 3, head not yet reviewed): dispatch the review in its **own
   worktree** (never the main checkout, LLP 0012) — `dual-review` does a `gh pr
   checkout --detach` *in place* and **refuses on a dirty tree**, so it must run in a
   clean, isolated checkout. Run the review — `dual-review` when `command -v codex`
-  succeeds, else `code-review` — on the PR number. **Capture the head SHA you
-  reviewed** (the `headSha` from `neutral prs`). For each actionable
-  finding, dispatch a fix and **positively verify** it landed (the named file/symbol
+  succeeds, else `code-review` — on the PR number; the review itself is **worker-tier**
+  work (LLP 0020 — Codex, when present, is the independent second family). **Capture
+  the head SHA you reviewed** (the `headSha` from `neutral prs`). For each actionable
+  finding, dispatch a fix (**mechanical tier — `sonnet`**; a fix is positively verified
+  against the tree, so a weak attempt can't slip through — and round 2's fixes climb a
+  tier per LLP 0021) and **positively verify** it landed (the named file/symbol
   changed in the committed tree vs pre-fix HEAD — a green suite is not proof a fix
   landed; LLP 0002 §Reviewed). Then **record the reviewed head**: append
   `<!-- neutral-review: <the head SHA you reviewed> -->` to the PR body
@@ -253,7 +303,9 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   rounds before it returns `stuck`.
 - **`triage`** (rung 3, review rounds exhausted at an unreviewed head): the fix-loop hit
   `maxReviewRounds` with findings still open. **Before parking the PR, judge whether it can
-  ship safely** (LLP 0017). Dispatch ONE agent in its **own worktree** to re-read every
+  ship safely** (LLP 0017). Dispatch ONE agent (**judgment tier — `fable`**, LLP 0020 —
+  a mis-classified blocker ships a production defect; this call is not machine-checkable)
+  in its **own worktree** to re-read every
   **unresolved** finding from the last review and classify each as a **true blocker** —
   could cause a *production* defect (wrong behaviour, data loss, a security hole, a crash, a
   perf regression past budget) — or a **preference** (style, naming, a test nicety, a
@@ -284,7 +336,7 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
 - **`wait`** / **`held`**: do nothing this tick.
 
-## Fan-out worker: Issue-fix (maintenance, LLP 0009)
+## Fan-out worker: Issue-fix (maintenance, LLP 0009)  — worker tier (`opus`)
 
 Goal: every open `neutral:fix` issue has a **fix attempt** — a `Fixes #N` PR, or a
 documented `neutral:stuck`. The reconciler's whole job is **issue → fix PR**;
@@ -296,9 +348,10 @@ For each issue `neutral issues --json` reports as **`needs-fix`** (skip
 
 1. **Idempotent intake** (the CLI already checked): `fix/issue-N` branch off the
    default branch (resume `origin/fix/issue-N` if it exists).
-2. Dispatch ONE fix agent in its own worktree under the **diagnose/bugfix
-   discipline** — *reproduce → root-cause → fix*, where **reproduce = a regression
-   test that FAILS on current code and PASSES after the fix**. The agent works out
+2. Dispatch ONE fix agent (**worker tier — `opus`**, LLP 0020) in its own worktree
+   under the **diagnose/bugfix discipline** — *reproduce → root-cause → fix*, where
+   **reproduce = a regression test that FAILS on current code and PASSES after the
+   fix**. The agent works out
    how to run the tests in context (no configured command); its local run is advisory.
 3. **Ground-truth gate (LLP 0002):** no reproducing failing-then-passing test ⇒ no
    credible fix ⇒ **no PR**. Label the issue `neutral:stuck` and surface it. Never

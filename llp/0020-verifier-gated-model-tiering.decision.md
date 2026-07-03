@@ -1,7 +1,7 @@
 # LLP 0020: Verifier-gated model tiering — the verifier picks the model, not the task
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Engine, Designer, Engineer, Reviewer
 **Author:** Phil / Claude
 **Date:** 2026-07-03

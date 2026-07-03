@@ -42,6 +42,27 @@ test('parseTasks fails loudly on a malformed task line', () => {
   assert.throws(() => parseTasks(bad), /malformed task line/)
 })
 
+test('parseTasks reads the optional complexity rating (LLP 0022)', () => {
+  const rated = `## Tasks
+- id: T1  branch: task/x/T1  deps: []              complexity: 2  -- rated, with brief
+- id: T2  branch: task/x/T2  deps: [T1]  complexity: 5
+- id: T3  branch: task/x/T3  deps: [T1]            -- unrated
+`
+  const tasks = parseTasks(rated)
+  assert.equal(tasks[0].complexity, 2)
+  assert.equal(tasks[0].brief, 'rated, with brief')
+  assert.equal(tasks[1].complexity, 5)
+  assert.equal(tasks[1].brief, undefined)
+  assert.equal(tasks[2].complexity, undefined) // absent ⇒ mechanical entry
+  assert.equal(tasks[2].brief, 'unrated')
+})
+
+test('parseTasks fails loudly on a complexity out of range or non-integer', () => {
+  assert.throws(() => parseTasks('## Tasks\n- id: T1  branch: b  deps: []  complexity: 6\n'), /complexity must be an integer 1–5/)
+  assert.throws(() => parseTasks('## Tasks\n- id: T1  branch: b  deps: []  complexity: 0\n'), /complexity must be an integer 1–5/)
+  assert.throws(() => parseTasks('## Tasks\n- id: T1  branch: b  deps: []  complexity: high\n'), /complexity must be an integer 1–5/)
+})
+
 test('parseTasks rejects duplicate ids, unknown deps, and cycles', () => {
   const dup = '## Tasks\n- id: T1  branch: b1  deps: []\n- id: T1  branch: b2  deps: []\n'
   assert.throws(() => parseTasks(dup), /duplicate task id/)

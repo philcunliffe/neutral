@@ -23,7 +23,9 @@ const TASK = {
     id: { type: 'string' },
     branch: { type: 'string' },
     deps: { type: 'array', items: { type: 'string' } },
-    brief: { type: 'string' }
+    brief: { type: 'string' },
+    // Planner-rated tier seed (LLP 0022); absent ⇒ mechanical entry.
+    complexity: { type: ['integer', 'null'] }
   }
 }
 
@@ -72,7 +74,7 @@ const DERIVE_READY = `In the repo at ${repo}, read the task queue from a throwaw
 3. \`cd "$WT" && neutral ready ${slug} --json\` (the global \`neutral\` CLI reads the change set from this worktree's tree).
 4. Clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.
 
-Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief}. Do not invent or filter tasks; the CLI is ground truth. If the CLI errors (e.g. prints "no plan LLP" to stderr instead of JSON), return ready/blocked/done all empty — the workflow treats an all-empty first read as a hard failure, never as "complete".`
+Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief, complexity}. Preserve \`complexity\` verbatim if the CLI emits it (it seeds the model tier, LLP 0022); omit it when absent — never invent a rating. Do not invent or filter tasks; the CLI is ground truth. If the CLI errors (e.g. prints "no plan LLP" to stderr instead of JSON), return ready/blocked/done all empty — the workflow treats an all-empty first read as a hard failure, never as "complete".`
 
 function implPrompt(t) {
   return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. Isolate your work in your OWN git worktree — never edit the main checkout.
@@ -112,17 +114,57 @@ After all verified merges: \`git push origin HEAD:${integration}\`. Then clean u
 Return: merged=[{id, sha (the merge commit)}] for each verified-and-pushed task; failed=[{id, reason}] otherwise. Never report a merge you did not verify and push — a fabricated merge corrupts the change set.`
 }
 
+// ---- verifier-gated model tiering (LLP 0020) + retry escalation (LLP 0021/0022) ----
+// The implementer runs on the MECHANICAL tier by default: a task is small, fully
+// specified by the plan, and gated by the verified merge — a weak attempt just fails
+// the gate and re-dispatches, never corrupts the change set (LLP 0002). derive-ready
+// only relays a CLI (haiku); the serial merger is procedural git (mechanical).
+// @ref LLP 0020#decision [implements] — verifier-gated tiers pick the model
+const TIERS = ['mechanical', 'worker', 'judgment']
+const TIER_MODEL = { mechanical: 'sonnet', worker: 'opus', judgment: 'fable' }
+// Per-tier attempt budget M (LLP 0021): generous where retries are cheapest, tighter
+// as they get dear. A tier retries in place until it exhausts its budget of VERIFIED
+// failures, then the task climbs one tier; judgment-tier exhaustion ⇒ neutral:stuck.
+// @ref LLP 0021#decision [implements] — a tier's exhausted budget climbs the ladder
+const TIER_BUDGET = { mechanical: 5, worker: 3, judgment: 2 }
+
+// Planner rating → entry rung (LLP 0022): 1–3 mechanical, 4 worker, 5 judgment; absent
+// ⇒ mechanical. The rating seeds where a task ENTERS the ladder, never what counts as done.
+// @ref LLP 0022#decision [implements] — complexity seeds the first-attempt tier
+function entryTier(complexity) {
+  if (complexity >= 5) return 'judgment'
+  if (complexity === 4) return 'worker'
+  return 'mechanical'
+}
+function nextTier(tier) {
+  const i = TIERS.indexOf(tier)
+  return i >= 0 && i < TIERS.length - 1 ? TIERS[i + 1] : null
+}
+
 // ---- the wave loop (deterministic JS; git work is delegated to agents) ----
 // The per-change-set fan-out/fan-in (parallel worktree impl, then a serial verified
 // merge) that the tick-wide execution model generalizes to every branch-disjoint gap.
 // @ref LLP 0010#decision [constrained-by] — the wave loop the per-tick fan-out generalizes
 
-let prevDone = -1
+// Per-(task, tier) escalation state, held IN-MEMORY for this run only. Safe because a
+// context-autophagy recycle fires solely at idle end-of-tick, never mid-run (LLP 0013),
+// so no recycle strands a count; and every `fails` increment below is gated by a fresh
+// git re-derivation of "did not land" (LLP 0002) — the tally is ephemeral, each failure
+// is ground truth. id -> { tier, fails }.
+const attempts = new Map()
+const stuck = new Set()
+function stateFor(t) {
+  let s = attempts.get(t.id)
+  if (!s) { s = { tier: entryTier(t.complexity), fails: 0 }; attempts.set(t.id, s) }
+  return s
+}
+
 let guard = 0
 let lastReady = null
+let dispatched = [] // task ids dispatched last wave, awaiting outcome attribution
 
 while (guard++ < 64) {
-  const r = await agent(DERIVE_READY, { label: `derive-ready:${slug}`, phase: 'Implement', schema: READY_SCHEMA })
+  const r = await agent(DERIVE_READY, { label: `derive-ready:${slug}`, phase: 'Implement', schema: READY_SCHEMA, model: 'haiku' })
 
   // First-wave failure guard: an all-empty read on the very first wave means
   // derive-ready couldn't see the plan at all (wrong branch checked out, bad
@@ -133,31 +175,46 @@ while (guard++ < 64) {
     log(`implement ${slug}: derive-ready saw zero tasks on the first wave — treating as failure, not complete`)
     return { slug, status: 'error', reason: 'derive-ready-empty', done: [], remaining: [] }
   }
+  if (!r) { break }
+  lastReady = r
 
-  if (!r || !r.ready || r.ready.length === 0) { lastReady = r; break }
-
-  // No-progress guard: the done-set must grow each wave, else we are stuck.
-  if (r.done.length <= prevDone) {
-    log(`implement ${slug}: no progress (done=${r.done.length}); stopping`)
-    return { slug, status: 'stuck', reason: 'no-progress', done: r.done.map(t => t.id), stuck: r.ready.map(t => t.id) }
+  // Attribute last wave's outcomes from git ground truth: a dispatched task now in the
+  // done-set landed (clear it); one that did NOT land is a verified failure — charge it
+  // to its current tier and, on budget exhaustion, climb a tier (reset) or stick.
+  const doneIds = new Set(r.done.map(t => t.id))
+  for (const id of dispatched) {
+    if (doneIds.has(id)) { attempts.delete(id); continue }
+    const s = attempts.get(id)
+    if (!s) continue
+    if (++s.fails >= TIER_BUDGET[s.tier]) {
+      const up = nextTier(s.tier)
+      if (up) { log(`implement ${slug}: ${id} exhausted ${s.tier} (${s.fails}); escalating to ${up}`); s.tier = up; s.fails = 0 }
+      else { log(`implement ${slug}: ${id} exhausted judgment tier; stuck`); stuck.add(id) }
+    }
   }
-  prevDone = r.done.length
-  log(`implement ${slug}: wave of ${r.ready.length} (done=${r.done.length})`)
+  dispatched = []
 
-  const built = (await parallel(r.ready.map(t => () =>
-    agent(implPrompt(t), { label: `impl:${t.id}`, phase: 'Implement', schema: IMPL_SCHEMA })
-  ))).filter(Boolean)
+  // Actionable = ready (unblocked, not done) minus tasks that exhausted the ladder.
+  const actionable = r.ready.filter(t => !stuck.has(t.id))
+  if (actionable.length === 0) break // all done, or all remaining ready tasks are stuck
 
+  log(`implement ${slug}: wave of ${actionable.length} (done=${r.done.length}, stuck=${stuck.size})`)
+
+  const built = (await parallel(actionable.map(t => () => {
+    const s = stateFor(t)
+    return agent(implPrompt(t), { label: `impl:${t.id}@${s.tier}`, phase: 'Implement', schema: IMPL_SCHEMA, model: TIER_MODEL[s.tier] })
+  }))).filter(Boolean)
+  dispatched = actionable.map(t => t.id)
+
+  // Merge only the attempts that self-report green; the NEXT derive-ready re-verifies
+  // from git which actually landed — the merger's (and impl's) claims are not trusted here.
   const ok = built.filter(b => b.testsPass)
-  if (ok.length === 0) {
-    return { slug, status: 'stuck', reason: 'all-impl-failed', done: r.done.map(t => t.id), stuck: r.ready.map(t => t.id) }
-  }
-
-  await agent(mergePrompt(ok), { label: `merge:${slug}`, phase: 'Merge', schema: MERGE_SCHEMA })
-  // Next iteration's derive-ready re-reads git truth — the merge agent's claims are not trusted here.
+  if (ok.length) await agent(mergePrompt(ok), { label: `merge:${slug}`, phase: 'Merge', schema: MERGE_SCHEMA, model: TIER_MODEL.mechanical })
 }
 
 const done = lastReady ? lastReady.done.map(t => t.id) : []
-const remaining = lastReady ? lastReady.blocked.map(t => t.id) : []
-log(`implement ${slug}: loop done — ${done.length} merged, ${remaining.length} remaining`)
-return { slug, status: remaining.length ? 'partial' : 'complete', done, remaining }
+const blocked = lastReady ? lastReady.blocked.map(t => t.id) : []
+const remaining = [...new Set([...blocked, ...stuck])]
+const status = remaining.length === 0 ? 'complete' : (stuck.size ? 'stuck' : 'partial')
+log(`implement ${slug}: loop done — ${done.length} merged, ${remaining.length} remaining (${stuck.size} stuck)`)
+return { slug, status, done, remaining, stuck: [...stuck] }

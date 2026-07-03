@@ -1,7 +1,7 @@
 # LLP 0021: Retry escalation — a tier's exhausted attempt budget climbs the model ladder
 
 **Type:** Decision
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Engine, Engineer, Reviewer
 **Author:** Phil / Claude
 **Date:** 2026-07-03
