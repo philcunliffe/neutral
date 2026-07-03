@@ -83,20 +83,31 @@ the section level.
 
 ### 3. `contract` — a multi-party request
 
-A contract generalises the two things neutral already does:
+A contract generalises what neutral already does, and — critically — **duplicates
+nothing**:
 
+- **The document lives once.** The contract LLP sits in the one shared corpus (§5);
+  each party `@ref`s it by bare number. There is **no second copy of the document** to
+  drift or to "sync." (This holds *because* corpus distribution is by-reference —
+  OQ1; vendoring the corpus into each repo is the rejected path that would reintroduce
+  doc duplication.)
 - **Coverage, per party.** A live request is covered iff code/design `@ref`s it
-  (LLP 0003). A contract is covered iff *every party* `@ref`s it — server code
-  fulfils the server clause, client code the client clause. A party that hasn't is a
-  backlog item, exactly as today.
-- **Sync, as ground truth.** Each party holds a pinned reference; "in sync" is the
-  re-derivable fact `is-ancestor(canonical, party-copy)` or a content-hash match —
-  the *same shape* as neutral's "done = `git merge-base --is-ancestor`" (LLP 0002).
-  Drift → open a sync PR into the lagging party. That is a textbook reconciler, and
-  it never trusts a stored "in sync" flag.
+  (LLP 0003). A contract is covered iff *every party* `@ref`s it — server code fulfils
+  the server clause, client code the client clause. A party that hasn't is a backlog
+  item; its *own* tick closes it with an ordinary in-repo implementation PR.
+- **Artifact distribution — the only thing that can "drift", and only sometimes.**
+  A contract *may* wrap a machine artifact (an OpenAPI schema, generated types) that a
+  party's build needs present **locally** — a native iOS client can't compile against a
+  schema that lives only in the corpus. That local copy can lag; "in sync" is then the
+  re-derivable fact `hash(local) == hash(canonical@corpus)`, and the party's *own* tick
+  refreshes it **in-repo**. A **prose** contract has no artifact and nothing to sync —
+  only per-party coverage.
 
-Both invariants are pure functions of git state; nothing about contracts violates
-LLP 0002. That is the test of whether this belongs in neutral at all — and it passes.
+**No tick writes across a repo boundary.** Both a coverage gap and an artifact refresh
+are closed by an **in-repo** PR opened by the *party's own tick* against the passive
+shared corpus (§4). Every predicate above is a re-derived fact, never a stored "in sync"
+flag — so nothing here violates LLP 0002, which is the test of whether contracts belong
+in neutral at all.
 
 ### 4. Staged rollout — `Scope` draws the cost line
 
@@ -104,13 +115,19 @@ LLP 0002. That is the test of whether this belongs in neutral at all — and it 
 |---|---|---|
 | **0 (today)** | Corpus in-repo, every LLP governs this repo. | — |
 | **1** | Shared corpus; **repo-specific** LLPs. Each tick reads the shared corpus, **filters to `Scope ⊇ self` (or `*`)**, runs the existing coverage/intake against its own code. | Almost free: an external read + a scope filter. **The single-repo write path is untouched.** |
-| **2** | **Contracts** — per-party coverage + drift → sync PR. | The only case needing a cross-repo *read* and a cross-repo *write*. |
+| **2** | **Contracts** — per-party coverage + optional artifact refresh, each closed **in-repo** by the party's own tick. | No cross-repo *write*. Only an optional read-only **union report** (who has covered) spans repos. |
 
-The Level-2 logic has a natural home: the **host / DNA tick**. Repo-A's tick stays
-strictly single-repo (reads shared docs, writes only A). The corpus repo's own tick
-is the one context that legitimately sees all parties checked out side by side, so it
-runs the cross-repo coverage/sync reconciler. That also gives a separate DNA repo a
-*job* — coordinator, not folder — which is the real answer to "why a second repo."
+**No tick writes across a repo boundary — at any level.** Each party's *own* tick reads
+the passive shared corpus, filters to the clauses scoped to it (§2), and opens **in-repo**
+PRs — to implement a missing clause, or to refresh a stale vendored artifact (§3) —
+riding the existing single-repo `reconcilePR`. The single-repo write path is genuinely
+untouched, not just at Level 1. The **host / DNA tick** never acts across a boundary; its
+only cross-repo move is a **read-only union report** — which parties have covered contract
+C, which lag — computable wherever the parties are checked out. That, plus being where
+humans *author* contracts, is the separate DNA repo's *job*: a coordinator-by-observation,
+not a folder and not a cross-repo actor. It is also what keeps LLP 0008's authorization
+model intact — a party opts in by pointing *its own* config at the corpus; neutral never
+reaches into a repo that didn't.
 
 **Shipped is re-derived, not flipped (resolves OQ4).** LLP 0016 flips a design
 `Accepted → Active` on build so the reconciler knows it shipped. That flip is a
@@ -143,10 +160,14 @@ which organism expresses which gene. (The mixed alternative is in Rejected.)
   drift reconciler on the corpus itself? Leaning single-source: it dodges a
   second-order drift problem. What presents the corpus at tick time (a sibling
   checkout? a fetch?) needs pinning.
-- **OQ2 — the contract's body.** Is a contract prose (a feature-set / behavioural
-  agreement, sync = the doc), or does it wrap a machine artifact (OpenAPI / JSON
-  Schema, sync = the schema file, and is codegen of clients/types in scope)? The type
-  likely supports both; which is the *first* target — lifebot's API is schema-backed.
+- **OQ2 — the contract's body & artifact distribution.** Prose (a feature-set /
+  behavioural agreement; only per-party coverage, nothing to duplicate) or schema-backed
+  (OpenAPI / JSON Schema)? If schema-backed, is the artifact **by-reference** (read from
+  the corpus checkout at build time; no local copy, no drift) or **vendored-self-heal**
+  (a local generated copy each party refreshes in-repo against the corpus canonical)?
+  Likely per-contract, defaulting by-reference where the toolchain allows and vendored
+  where a build needs it locally (native mobile — the lifebot-iphone case). Is codegen in
+  scope, or does neutral only refresh a human-authored generator's output?
 - **OQ3 — section-level attribution.** How does coverage attribute a code `@ref` in
   repo B to a contract *section* scoped to B? The `@repo` marker grammar, and how
   `refs.js`/`coverage.js` resolve per-clause rather than per-doc, need spec.
@@ -162,7 +183,15 @@ which organism expresses which gene. (The mixed alternative is in Rejected.)
   where they are checked out? A new config surface (siblings), and its trust model.
 - **OQ6 — partial realisation.** Is a contract binary (covered only when *all* parties
   cover it), or does neutral track per-party partial state (server done, client
-  pending) so a half-built contract is legible rather than just "uncovered"?
+  pending) so a half-built contract is legible rather than just "uncovered"? The union
+  report (§4) is the natural home for this.
+- **OQ7 — cross-party atomicity.** A breaking contract change cannot land atomically
+  across non-monorepo parties: there will be a window where the server is on C-v2 and the
+  client on C-v1. Each party self-drives in-repo, so neutral *surfaces* the skew (the
+  union report) but cannot make the change atomic — that is inherent to not-a-monorepo.
+  Mitigation is compat discipline (backward-compatible changes, versioned clauses).
+  Accept as a stated limitation, or add a coordination primitive (hold every party's PR
+  until all parties are green — which *would* reintroduce a cross-repo read/hold)?
 
 ## Rejected
 
@@ -199,6 +228,10 @@ Per house rules an `rfc` stays an `rfc` and spawns its decisions + spec:
 - **decision** — for shared-corpus designs, "shipped" is **re-derived from party
   coverage**; 0016's `Active`-flip write-back is dropped (a single-repo optimization),
   keeping Level-1 writes single-repo and staying closer to LLP 0002.
+- **decision** — the corpus is **passive shared truth**: no document is duplicated, and
+  every write (coverage or artifact refresh) is an **in-repo** PR opened by the party's
+  own tick. Cross-repo *writes* are designed out; the host/DNA tick only produces a
+  read-only union report.
 - **spec** — the `Scope:` header grammar and section-level `@repo`; the `llpDir`
   external/shared config change and party-discovery surface (OQ5); scope-filtered
   coverage/intake; and the Level-2 cross-repo observe / sync predicate (OQ1, OQ3, OQ4,
@@ -216,8 +249,10 @@ Per house rules an `rfc` stays an `rfc` and spawns its decisions + spec:
   and adds `Scope` + (Level-2) a party-discovery config surface; today config reaches
   nothing outside the local tree.
 - `@ref LLP 0008 [constrained-by]` — `Scope` is orthogonal to the
-  request/design/background role taxonomy and the reconciler families; the contract
-  reconciler is a new family member, run from the host tick.
+  request/design/background role taxonomy. Authorization is preserved: neutral never
+  writes across a boundary, so "the label is the authorization" generalises to "a party
+  opts in by pointing *its own* config at the shared corpus"; the host tick's union
+  report is read-only. No new cross-repo-*actor* family is introduced.
 - `@ref LLP 0016 [constrained-by]` — design-first intake's `Accepted` trigger fires
   from the shared corpus while the PR lands in the party repo (observe-source ≠
   act-target). For shared designs, 0016's stored `Active`-flip is **replaced by

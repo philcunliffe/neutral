@@ -114,11 +114,13 @@ tick's log lines (R2 — nothing may follow this destructive act):
   `tick: family=autophagy action=recycle detail=context=<N> threshold=<T>`, then
   **respawn the pane** — the tick's last act:
   ```sh
-  tmux respawn-pane -k "claude --model opus '/loop /neutral-reconcile'"
+  tmux respawn-pane -k "claude --model 'claude-opus-4-8[1m]' '/loop /neutral-reconcile'"
   ```
-  **Pin `--model opus`** (the worker tier, matching `neutral start` — LLP 0020): an
-  unpinned respawn silently reverts the fresh orchestrator to the machine's session
-  default, which may be a different tier. No `-t`: tmux defaults to the **current pane**
+  **Pin the model** to the 1M-context Opus 4.8 (the worker tier, matching `neutral
+  start` — LLP 0020): an unpinned respawn silently reverts the fresh orchestrator to
+  the machine's session default, which may be a different tier or a 200K window too
+  small for the autophagy threshold T (LLP 0013). Single-quote the `[1m]` token so `sh`
+  doesn't glob the brackets. No `-t`: tmux defaults to the **current pane**
   (`$TMUX_PANE`), so the respawn targets the very pane the loop runs in — independent of
   the per-repo session name (LLP 0014).
   `respawn-pane -k` atomically kills this session and starts a fresh `/loop` in the

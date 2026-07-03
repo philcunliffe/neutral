@@ -92,9 +92,10 @@ tmux respawn-pane -k "claude '/loop /neutral-reconcile'"
 ```
 
 Extended-by: 0020 — the respawn command must pin the orchestrator's model
-(`claude --model opus …`); an unpinned respawn silently reverts the fresh
-orchestrator to the machine's session default. See LLP 0020 §Decision and the
-reconcile skill's autophagy section for the live command.
+(`claude --model 'claude-opus-4-8[1m]' …`, the 1M-context Opus 4.8); an unpinned
+respawn silently reverts the fresh orchestrator to the machine's session default,
+which may be a 200K window too small for the threshold T above. See LLP 0020
+§Decision and the reconcile skill's autophagy section for the live command.
 
 Performed in place of scheduling the next tick. No `-t`: tmux defaults to the current
 pane (`$TMUX_PANE`), so the respawn is independent of the per-repo session name
