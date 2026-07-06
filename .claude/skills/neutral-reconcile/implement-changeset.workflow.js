@@ -122,6 +122,12 @@ Return: merged=[{id, sha (the merge commit)}] for each verified-and-pushed task;
 // @ref LLP 0020#decision [implements] — verifier-gated tiers pick the model
 const TIERS = ['mechanical', 'worker', 'judgment']
 const TIER_MODEL = { mechanical: 'sonnet', worker: 'opus', judgment: 'fable' }
+// Effort per tier (LLP 0020). The judgment tier (Fable) runs at `high`, NOT Claude
+// Code's `xhigh` default — Fable at `high` still exceeds prior models at their ceiling,
+// so capping the priciest tier's thinking is a deliberate, low-risk cost lever. Tiers
+// omitted here inherit the session effort. A tunable constant, like TIER_BUDGET.
+// @ref LLP 0020#decision [implements] — judgment-tier effort caps at `high`
+const TIER_EFFORT = { judgment: 'high' }
 // Per-tier attempt budget M (LLP 0021): generous where retries are cheapest, tighter
 // as they get dear. A tier retries in place until it exhausts its budget of VERIFIED
 // failures, then the task climbs one tier; judgment-tier exhaustion ⇒ neutral:stuck.
@@ -202,7 +208,8 @@ while (guard++ < 64) {
 
   const built = (await parallel(actionable.map(t => () => {
     const s = stateFor(t)
-    return agent(implPrompt(t), { label: `impl:${t.id}@${s.tier}`, phase: 'Implement', schema: IMPL_SCHEMA, model: TIER_MODEL[s.tier] })
+    const effort = TIER_EFFORT[s.tier]
+    return agent(implPrompt(t), { label: `impl:${t.id}@${s.tier}`, phase: 'Implement', schema: IMPL_SCHEMA, model: TIER_MODEL[s.tier], ...(effort ? { effort } : {}) })
   }))).filter(Boolean)
   dispatched = actionable.map(t => t.id)
 

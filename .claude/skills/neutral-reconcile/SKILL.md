@@ -143,8 +143,14 @@ model's failure just re-opens the gap — so cheap models run wherever a verifie
 the result, and the strongest is reserved for judgement no machine re-checks. When you
 dispatch a worker below, pass the tier's model as the sub-agent's `model`:
 
-- **Judgment tier — `fable`.** Output no verifier re-derives, where an error
-  propagates: the **Designer**, the **Impl-designer**, and the **triage** rung.
+- **Judgment tier — `fable`, at `high` effort.** Output no verifier re-derives, where
+  an error propagates: the **Designer**, the **Impl-designer**, and the **triage** rung.
+  Run Fable at **`high`**, not Claude Code's `xhigh` default — Fable at `high` still
+  exceeds prior models at their ceiling, so it's a low-risk cost lever on the priciest
+  tier. The implement Workflow enforces this via `agent({ effort: 'high' })`; the **Agent
+  tool has no per-call `effort` override**, so the Designer/Impl-designer/triage inherit
+  the **session** effort — run the orchestrator loop at `high` if you want them capped
+  there too.
 - **Worker tier — `opus` (Opus 4.8).** Bounded work behind a hard gate: **conflict
   resolution**, **issue-fix**, the Claude half of **review**, and the **orchestrator
   itself** (pinned at launch — LLP 0020; the tick is mechanical, the CLI decides every
