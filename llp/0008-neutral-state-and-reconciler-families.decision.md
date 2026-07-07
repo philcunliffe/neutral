@@ -83,6 +83,11 @@ manually until then. The charter admits adopted PRs; the spec simply does not bu
 them yet. This keeps every in-scope PR one neutral can always push to, dropping
 `canPush` detection and the unpushable-fork case entirely.
 
+> **Extended-by [LLP 0025](0025-adopt-foreign-prs.spec.md):** the deferral is
+> lifted — the maintenance family now also covers foreign PRs labelled
+> `neutral:adopt`, re-introducing `canPush` detection and the unpushable-fork
+> (review-only) case. Trust model: [LLP 0024](0024-adopt-trust-model.decision.md).
+
 ## Consequences
 
 - LLP 0000's identity and reconciler table gain the maintenance family and the

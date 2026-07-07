@@ -11,22 +11,30 @@ import { run } from './git.js'
 /** @import { PrObservation } from './types.d.ts' */
 
 // The fields reconcilePR's rungs need: mergeability, the check rollup, the head SHA
-// (every downstream fact is keyed to it), the body (carries review markers), and the
-// labels (`neutral:stuck` halts auto-advance, mirroring the issue family).
-const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels'
+// (every downstream fact is keyed to it), the body (carries review markers), the labels
+// (`neutral:stuck` halts auto-advance; `neutral:adopt` triggers foreign adoption), and —
+// for an adopted PR — whether neutral can push a heal to the head branch (LLP 0025).
+// @ref LLP 0025#push-access-canpush [implements] — isCrossRepository/maintainerCanModify
+const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify'
 
 /**
- * Numbers + head branches of every open PR. Used to enumerate; the per-PR health
- * read is `viewPR`. Empty on any gh failure.
+ * Numbers, head branches, and labels of every open PR. Used to enumerate + classify scope
+ * before the per-PR health read (`viewPR`): labels are needed here so a foreign PR carrying
+ * `neutral:adopt` is picked up at enumeration (LLP 0025), not just own-head branches. Empty
+ * on any gh failure.
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, headRefName: string}>>}
+ * @returns {Promise<Array<{number: number, headRefName: string, labels: string[]}>>}
  */
 export async function listOpenPRs(repo, exec = run) {
   try {
-    const out = await exec('gh', ['pr', 'list', '--state', 'open', '--json', 'number,headRefName', '--limit', '200'], repo)
+    const out = await exec('gh', ['pr', 'list', '--state', 'open', '--json', 'number,headRefName,labels', '--limit', '200'], repo)
     const arr = JSON.parse(out)
-    return Array.isArray(arr) ? arr.map(p => ({ number: p.number, headRefName: p.headRefName || '' })) : []
+    return Array.isArray(arr) ? arr.map(p => ({
+      number: p.number,
+      headRefName: p.headRefName || '',
+      labels: (Array.isArray(p.labels) ? p.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || '')
+    })) : []
   } catch {
     return []
   }
@@ -49,7 +57,13 @@ export function normalizePR(o) {
     rollup: Array.isArray(o.statusCheckRollup) ? o.statusCheckRollup : [],
     headSha: o.headRefOid || '',
     body: o.body || '',
-    labels: (Array.isArray(o.labels) ? o.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || '')
+    labels: (Array.isArray(o.labels) ? o.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || ''),
+    // Can neutral push a heal to the head branch? A same-repo branch always; a cross-repo
+    // fork only while the contributor leaves "allow edits from maintainers" on. Re-derived
+    // every observation (a contributor can toggle it), never stored (LLP 0002). Only an
+    // adopted foreign PR consults it (LLP 0025); own PRs are always pushable.
+    // @ref LLP 0025#push-access-canpush [implements]
+    canPush: !o.isCrossRepository || !!o.maintainerCanModify
   }
 }
 

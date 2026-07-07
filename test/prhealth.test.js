@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import {
   selectRung, classifyMergeable, rollupConclusion,
   parseReviewMarkers, reviewRounds, reviewedAtHead,
-  parseTriageMarkers, triagedAtHead
+  parseTriageMarkers, triagedAtHead,
+  parseVerdictMarkers, verdictAtHead
 } from '../src/prhealth.js'
 
 /**
@@ -143,6 +144,60 @@ test('selectRung: neutral:stuck label is held for a human and wins over every ru
   assert.equal(selectRung(pr({ labels: ['neutral:stuck'], headSha: 'abc1234' })).action, 'held')
   // ...and the SAME PR without the label is reviewed as normal (the label is the only difference).
   assert.equal(selectRung(pr({ headSha: 'abc1234' })).action, 'review')
+})
+
+// --- Adopted (foreign) PRs — LLP 0025 -----------------------------------------------------
+
+/** A foreign (adopted) PR observation: mergeable+green by default, overridable. */
+function fpr(over = {}) { return pr({ foreign: true, canPush: true, head: 'contrib/patch', ...over }) }
+
+test('foreign PR (canPush): heals like an own PR but terminal is a verdict, not ready/merge (LLP 0025)', () => {
+  // heal rungs are identical to an own PR when neutral can push to the fork
+  assert.equal(selectRung(fpr({ mergeStateStatus: 'BEHIND' })).action, 'merge-base')
+  assert.equal(selectRung(fpr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).action, 'resolve-conflict')
+  assert.equal(selectRung(fpr({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).action, 'fix-ci')
+  assert.equal(selectRung(fpr({ rollup: [{ status: 'IN_PROGRESS' }] })).action, 'wait')
+  assert.equal(selectRung(fpr({ headSha: 'abc1234' })).action, 'review') // unreviewed head
+  // reviewed ∧ mergeable ∧ green -> APPROVE (verdict label), never ready-hold/merge...
+  const body = '<!-- neutral-review: abc1234 -->'
+  assert.deepEqual(pick(selectRung(fpr({ headSha: 'abc1234', body }))), { rung: 'terminal', action: 'approve' })
+  // ...and automerge never applies to a contributor's PR (LLP 0000 §Autonomy)
+  assert.equal(selectRung(fpr({ headSha: 'abc1234', body }), 2, true).action, 'approve')
+})
+
+test('foreign PR at the review cap hands residual findings to the contributor, not triage (LLP 0025)', () => {
+  const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
+  assert.equal(selectRung(fpr({ headSha: 'beef999', body })).action, 'request-changes')
+})
+
+test('foreign PR (review-only, !canPush): heal rungs degrade to request-changes (LLP 0025)', () => {
+  const ro = (over = {}) => fpr({ canPush: false, ...over })
+  assert.equal(selectRung(ro({ mergeStateStatus: 'BEHIND' })).action, 'request-changes')
+  assert.equal(selectRung(ro({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).action, 'request-changes')
+  assert.equal(selectRung(ro({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).action, 'request-changes')
+  // pending still waits (LLP 0002); review still runs — it needs no push
+  assert.equal(selectRung(ro({ rollup: [{ status: 'IN_PROGRESS' }] })).action, 'wait')
+  assert.equal(selectRung(ro({ headSha: 'abc1234' })).action, 'review')
+  // the review cap is an own-PR fix-loop bound; review-only never fixes, so it reviews, not request-changes
+  const twoRounds = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
+  assert.equal(selectRung(ro({ headSha: 'beef999', body: twoRounds })).action, 'review')
+})
+
+test('verdict markers: parse SHAs, match head; a verdict holds until the contributor pushes (LLP 0025)', () => {
+  const body = 'reviewed\n<!-- neutral-verdict: beef999 approved -->'
+  assert.deepEqual(parseVerdictMarkers(body), ['beef999'])
+  assert.deepEqual(parseVerdictMarkers(''), [])
+  assert.equal(verdictAtHead(body, 'beef999'), true)
+  assert.equal(verdictAtHead(body, 'beef9990000000000000000000000000000000ff'), true) // abbrev matches full oid
+  assert.equal(verdictAtHead('', 'beef999'), false)
+  // a verdict covering head short-circuits to held — even a BEHIND base does not re-open it...
+  assert.equal(selectRung(fpr({ canPush: false, headSha: 'beef999', mergeStateStatus: 'BEHIND', body })).action, 'held')
+  // ...but a new head (the contributor pushed) leaves the marker stale and re-opens the ladder
+  assert.equal(selectRung(fpr({ canPush: false, headSha: 'cafe123', mergeStateStatus: 'BEHIND', body })).action, 'request-changes')
+})
+
+test('foreign PR still respects neutral:stuck — held over every rung (LLP 0009/0025)', () => {
+  assert.equal(selectRung(fpr({ labels: ['neutral:stuck'], mergeStateStatus: 'BEHIND' })).action, 'held')
 })
 
 /** @param {import('../src/types.d.ts').RungDecision} d */

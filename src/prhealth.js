@@ -100,6 +100,41 @@ export function triagedAtHead(body, headSha) {
   return parseTriageMarkers(body).some(sha => shaEq(sha, headSha))
 }
 
+// `<!-- neutral-verdict: <sha> approved|changes-requested -->` — the head at which neutral
+// posted a verdict on an ADOPTED (foreign) PR (LLP 0025). Head-keyed exactly like the review
+// and triage markers: the verdict stands until the *contributor* pushes a new head, which
+// re-opens it — base movement alone does not (an adopted PR's ball is out of neutral's court
+// once a verdict is posted, unlike an own PR that neutral keeps rebased). Own PRs never carry
+// this — they terminate in a ready-hold/merge, not a verdict label.
+// @ref LLP 0025#ground-truth [implements] — head-keyed verdict marker for adopted PRs
+const VERDICT_MARKER_RE = /<!--\s*neutral-verdict:\s*([0-9a-f]{7,40})\b[^>]*-->/gi
+
+/**
+ * SHAs of every neutral-verdict marker in a PR body, in document order (LLP 0025).
+ * @param {string} body
+ * @returns {string[]}
+ */
+export function parseVerdictMarkers(body) {
+  /** @type {string[]} */
+  const shas = []
+  for (const m of String(body || '').matchAll(VERDICT_MARKER_RE)) shas.push(m[1].toLowerCase())
+  return shas
+}
+
+/**
+ * True iff a verdict marker covers the current head — neutral already posted its
+ * approved/changes-requested verdict for this exact commit, so the loop holds rather than
+ * re-labelling a settled head. A contributor push moves the head and re-opens it (LLP 0002:
+ * a verdict on a prior commit is stale).
+ * @param {string} body
+ * @param {string} headSha
+ * @returns {boolean}
+ */
+export function verdictAtHead(body, headSha) {
+  if (!headSha) return false
+  return parseVerdictMarkers(body).some(sha => shaEq(sha, headSha))
+}
+
 /**
  * Classify the mergeable rung from GitHub's own `mergeable` / `mergeStateStatus`
  * (LLP 0009 rung 1). `UNKNOWN` mergeability is "wait", not failure (LLP 0002:
@@ -182,6 +217,13 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
     return { rung: 'terminal', action: 'held', reason: `labeled ${STUCK_LABEL} — held for a human (won't auto-advance)` }
   }
 
+  // Adopted (foreign) PRs — LLP 0025. Same strictly-ordered ladder, but heal actions are gated
+  // on push access and the terminal is a verdict LABEL (neutral:approved / :changes-requested),
+  // never a ready-flip or merge — readying/merging a contributor's PR is the maintainer's call
+  // (LLP 0000 §Autonomy). Own PRs (foreign falsy) fall through to the unchanged ladder below.
+  // @ref LLP 0025#the-degraded-rung-ladder [implements]
+  if (pr.foreign) return foreignRung(pr, maxReviewRounds)
+
   // Rung 1 — mergeable.
   const m = classifyMergeable(pr.mergeable, pr.mergeStateStatus)
   if (m === 'wait') return { rung: 'mergeable', action: 'wait', reason: 'mergeability UNKNOWN — GitHub still computing' }
@@ -213,4 +255,70 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   if (automerge) return { rung: 'terminal', action: 'merge', reason: 'mergeable ∧ green ∧ reviewed, automerge on — flip ready if draft, then squash-merge' }
   if (pr.isDraft) return { rung: 'terminal', action: 'ready-hold', reason: 'mergeable ∧ green ∧ reviewed — flip ready, then HOLD' }
   return { rung: 'terminal', action: 'held', reason: 'already held for a human — nothing to do' }
+}
+
+/**
+ * The rung action for an ADOPTED (foreign) PR (LLP 0025). Same strict order as an own PR
+ * (mergeable → green → reviewed → terminal), with two differences: heal actions are gated on
+ * `canPush` — when neutral cannot push to the fork, an unmet heal rung degrades to
+ * `request-changes` (surface the blocker to the contributor) instead of healing it — and the
+ * terminal is a verdict label (`approve` → neutral:approved), never a ready-flip or merge.
+ * `automerge` is deliberately ignored: neutral never merges a contributor's PR (LLP 0000).
+ * @param {PrObservation} pr
+ * @param {number} maxReviewRounds
+ * @returns {RungDecision}
+ * @ref LLP 0025#the-degraded-rung-ladder [implements]
+ * @ref LLP 0000#autonomy [constrained-by] — terminal is a verdict, never a merge/ready-flip
+ */
+function foreignRung(pr, maxReviewRounds) {
+  // Absent ⇒ pushable (a same-repo branch). Only a cross-repo fork with maintainer-edits off
+  // is unpushable. @ref LLP 0024#decision [constrained-by] — canPush selects the mode, not a gate
+  const canPush = pr.canPush !== false
+
+  // A verdict already posted for this exact head → held; a contributor push moves the head and
+  // re-opens it (LLP 0002). This idempotency gate keeps the loop from re-labelling a settled
+  // head every tick — the foreign counterpart to an own PR's terminal `held`.
+  if (verdictAtHead(pr.body, pr.headSha)) {
+    return { rung: 'terminal', action: 'held', reason: 'verdict posted for this head — held (a contributor push re-opens)' }
+  }
+
+  // Rung 1 — mergeable. Healed in place when pushable, else handed to the contributor.
+  const m = classifyMergeable(pr.mergeable, pr.mergeStateStatus)
+  if (m === 'wait') return { rung: 'mergeable', action: 'wait', reason: 'mergeability UNKNOWN — GitHub still computing' }
+  if (m === 'resolve-conflict') {
+    return canPush
+      ? { rung: 'mergeable', action: 'resolve-conflict', reason: 'DIRTY — real merge conflict; resolve and push to the fork' }
+      : { rung: 'mergeable', action: 'request-changes', reason: 'DIRTY — contributor must resolve (neutral cannot push to this fork)' }
+  }
+  if (m === 'merge-base') {
+    return canPush
+      ? { rung: 'mergeable', action: 'merge-base', reason: 'BEHIND — stale base, no conflict; merge target in and push to the fork' }
+      : { rung: 'mergeable', action: 'request-changes', reason: 'BEHIND — contributor must rebase (neutral cannot push to this fork)' }
+  }
+
+  // Rung 2 — green (keyed to the current head SHA).
+  const g = rollupConclusion(pr.rollup)
+  if (g === 'FAILURE') {
+    return canPush
+      ? { rung: 'green', action: 'fix-ci', reason: 'checks failing at head — fix from the logs and push to the fork' }
+      : { rung: 'green', action: 'request-changes', reason: 'checks failing at head — contributor must fix (neutral cannot push)' }
+  }
+  if (g === 'PENDING') return { rung: 'green', action: 'wait', reason: 'checks pending at head — wait (no fix-storm mid-run)' }
+
+  // Rung 3 — reviewed (keyed to the current head SHA). Review always runs — it needs no push.
+  // Pushable: findings are fixed in a bounded loop exactly like an own PR, and at the cap the
+  // residual is handed to the CONTRIBUTOR (request-changes) rather than deferred to a
+  // neutral:fix follow-up — triage (LLP 0017) is an own-PR mechanism (the code is the
+  // contributor's here). Review-only: the `review` action posts the verdict directly.
+  if (!reviewedAtHead(pr.body, pr.headSha)) {
+    if (canPush && reviewRounds(pr.body) >= maxReviewRounds) {
+      return { rung: 'reviewed', action: 'request-changes', reason: `${maxReviewRounds} review round(s) exhausted — hand residual findings to the contributor (neutral:changes-requested)` }
+    }
+    return { rung: 'reviewed', action: 'review', reason: 'head not reviewed — review; approve if clean, else request changes' }
+  }
+
+  // Terminal — mergeable ∧ green ∧ reviewed, no verdict yet at this head: approve and hold the
+  // verdict for the maintainer. Never a merge or a ready-flip (LLP 0000 §Autonomy).
+  // @ref LLP 0025#terminal-a-verdict-label-not-a-merge [implements]
+  return { rung: 'terminal', action: 'approve', reason: 'mergeable ∧ green ∧ reviewed — set neutral:approved, hold for the maintainer to merge' }
 }

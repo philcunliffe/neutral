@@ -131,6 +131,11 @@ previously lacked.
 
 ## Deferred: foreign PR adoption
 
+> **Superseded-by [LLP 0025](0025-adopt-foreign-prs.spec.md):** the deferral is
+> lifted — foreign-PR adoption is now specified, realizing the sketch below
+> (`canPush` detection, review-only degradation, the two verdict labels). The
+> trust model it assumes is [LLP 0024](0024-adopt-trust-model.decision.md).
+
 Reviewing and healing pull requests neutral did **not** author (gated by a
 `neutral:adopt` label) is out of scope until the repo has external contributors.
 It is parked, not forgotten — handle such PRs manually until then. When built it

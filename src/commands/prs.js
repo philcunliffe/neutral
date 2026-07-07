@@ -8,12 +8,14 @@
 import { run } from '../git.js'
 import { listOpenPRs, viewPR } from '../github.js'
 import { selectRung } from '../prhealth.js'
-import { loadConfig } from '../config.js'
+import { loadConfig, ADOPT_LABEL } from '../config.js'
 
-// In scope by ownership: neutral's own integration and fix PRs. Foreign
-// `neutral:adopt` PRs are deferred (handled manually for now), which is what lets us
-// drop `canPush` detection — every in-scope PR is one neutral can always push to.
-// @ref LLP 0008#scope [implements] — own PRs only; foreign-PR adoption deferred
+// In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS foreign PRs a
+// maintainer delegated with `neutral:adopt` (LLP 0025). The label is the authorization for the
+// foreign case, exactly as `neutral:fix` is for an issue; own PRs need none. An adopted PR runs
+// the same rung ladder, degraded by push access and terminating in a verdict label.
+// @ref LLP 0025#trigger-and-authorization [implements] — in scope = own ∪ adopt
+// @ref LLP 0008#scope [constrained-by] — adopted PRs are a separate axis from the change-set DAG
 const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
 
 /**
@@ -21,19 +23,22 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
  * empty list (offline / no remote), never an exception.
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, rung: string, action: string, reason: string}>>}
+ * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, rung: string, action: string, reason: string}>>}
  */
 export async function collectPRs(repo, exec = run) {
   const { maxReviewRounds, automerge } = loadConfig(repo)
   const open = await listOpenPRs(repo, exec)
-  const own = open.filter(p => OWN_HEAD_RE.test(p.headRefName))
-  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, rung: string, action: string, reason: string}>} */
+  // Own by head-branch ownership; foreign only when a maintainer explicitly adopted it (LLP 0025).
+  const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL))
+  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, rung: string, action: string, reason: string}>} */
   const out = []
-  for (const p of own) {
+  for (const p of inScope) {
     const obs = await viewPR(repo, p.number, exec)
     if (!obs) continue
-    const decision = selectRung(obs, maxReviewRounds, automerge)
-    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, ...decision })
+    // foreign ⇔ not an own head branch. An adopt label on an own PR is redundant — ownership wins.
+    const foreign = !OWN_HEAD_RE.test(obs.head)
+    const decision = selectRung({ ...obs, foreign }, maxReviewRounds, automerge)
+    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, canPush: obs.canPush !== false, ...decision })
   }
   return out
 }
@@ -52,7 +57,8 @@ export async function prsCommand(repo, args, exec = run) {
     process.stdout.write('  (no in-scope open PRs)\n')
   } else {
     for (const p of prs) {
-      process.stdout.write(`  #${p.number}  ${p.head}  rung=${p.rung} action=${p.action} — ${p.reason}\n`)
+      const tag = p.foreign ? `  [adopt${p.canPush ? '' : ',review-only'}]` : ''
+      process.stdout.write(`  #${p.number}  ${p.head}${tag}  rung=${p.rung} action=${p.action} — ${p.reason}\n`)
     }
   }
   return 0

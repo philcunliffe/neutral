@@ -12,6 +12,15 @@ import { join } from 'node:path'
 // @ref LLP 0009#the-authorization-gate [implements]
 export const FIX_LABEL = 'neutral:fix'      // a human delegates an issue for a fix attempt
 export const STUCK_LABEL = 'neutral:stuck'  // neutral sets this when it cannot complete one
+// Foreign-PR adoption labels (LLP 0025). `neutral:adopt` is a maintainer's authorization to
+// review+heal a PR neutral did NOT author — the maintenance counterpart to `neutral:fix` on an
+// issue (LLP 0024). `neutral:approved` / `neutral:changes-requested` are the verdicts neutral
+// SETS in place of the ready-hold/merge it uses on its own PRs: readying or merging a
+// contributor's PR is the maintainer's call (LLP 0000 §Autonomy).
+// @ref LLP 0025#trigger-and-authorization [implements] — the adopt trigger + verdict labels
+export const ADOPT_LABEL = 'neutral:adopt'
+export const APPROVED_LABEL = 'neutral:approved'
+export const CHANGES_REQUESTED_LABEL = 'neutral:changes-requested'
 // The reconcilePR review rung's fix-loop bound: past this many rounds with the head
 // still unreviewed, the PR is surfaced as stuck rather than churned forever.
 // @ref LLP 0009#pr-health-reconciler [implements] — N=2 fix rounds

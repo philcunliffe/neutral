@@ -23,7 +23,7 @@ function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [] } = {})
       const fields = args[args.indexOf('--json') + 1]
       return JSON.stringify(prs.map(p => fields.includes('body')
         ? { number: p.number, body: p.body || '', headRefName: p.headRefName }
-        : { number: p.number, headRefName: p.headRefName }))
+        : { number: p.number, headRefName: p.headRefName, labels: p.labels || [] }))
     }
     if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view') {
       return JSON.stringify(views[Number(args[2])])
@@ -56,6 +56,32 @@ test('collectPRs keeps only neutral-owned heads and attaches a rung decision', a
 
 test('collectPRs is empty when there are no open PRs (offline-safe)', async () => {
   assert.deepEqual(await collectPRs('/r', fakeWorld({ prs: [] })), [])
+})
+
+test('collectPRs adopts a foreign PR labelled neutral:adopt; an unlabelled foreign PR stays out of scope (LLP 0025)', async () => {
+  const exec = fakeWorld({
+    prs: [
+      { number: 3, headRefName: 'feature/from-a-human' },                          // foreign, NO label -> excluded
+      { number: 4, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] } // adopted -> in scope
+    ],
+    views: {
+      4: { number: 4, headRefName: 'contrib/patch', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'ddd', body: '', isCrossRepository: true, maintainerCanModify: true }
+    }
+  })
+  const got = await collectPRs('/r', exec)
+  // only #4 is picked up; a pushable fork with an unreviewed head -> review
+  assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[4, true, true, 'review']])
+})
+
+test('collectPRs review-only degrades an unpushable fork to request-changes on a stale base (LLP 0025)', async () => {
+  const exec = fakeWorld({
+    prs: [{ number: 5, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] }],
+    views: {
+      5: { number: 5, headRefName: 'contrib/patch', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', statusCheckRollup: [], headRefOid: 'eee', body: '', isCrossRepository: true, maintainerCanModify: false }
+    }
+  })
+  const got = await collectPRs('/r', exec)
+  assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[5, true, false, 'request-changes']])
 })
 
 test('collectPRs honours the maxReviewRounds config knob', async () => {

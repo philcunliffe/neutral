@@ -22,11 +22,11 @@ function fakeGh({ prList, prView, issueList, prBodies, fail = false } = {}) {
   }
 }
 
-test('listOpenPRs returns number+head, and is empty when gh fails (offline)', async () => {
-  const exec = fakeGh({ prList: [{ number: 1, headRefName: 'integration/x' }, { number: 2, headRefName: 'fix/issue-9' }] })
+test('listOpenPRs returns number+head+labels, and is empty when gh fails (offline)', async () => {
+  const exec = fakeGh({ prList: [{ number: 1, headRefName: 'integration/x' }, { number: 2, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] }] })
   assert.deepEqual(await listOpenPRs('/r', exec), [
-    { number: 1, headRefName: 'integration/x' },
-    { number: 2, headRefName: 'fix/issue-9' }
+    { number: 1, headRefName: 'integration/x', labels: [] },
+    { number: 2, headRefName: 'contrib/patch', labels: ['neutral:adopt'] }
   ])
   assert.deepEqual(await listOpenPRs('/r', fakeGh({ fail: true })), [])
 })
@@ -35,13 +35,20 @@ test('normalizePR fills stable defaults from a raw gh object', () => {
   assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }] }), {
     number: 3, head: 'integration/y', base: 'main', isDraft: true,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [{ state: 'SUCCESS' }], headSha: 'deadbeef', body: 'b',
-    labels: ['neutral:stuck', 'enhancement']
+    labels: ['neutral:stuck', 'enhancement'], canPush: true
   })
   // missing fields default rather than throw — UNKNOWN mergeability becomes "wait" downstream
   const d = normalizePR({ number: 4 })
   assert.equal(d.mergeable, 'UNKNOWN')
   assert.deepEqual(d.rollup, [])
   assert.deepEqual(d.labels, []) // absent labels default to [] (no stuck short-circuit)
+  assert.equal(d.canPush, true) // same-repo (not cross) ⇒ always pushable
+})
+
+test('normalizePR canPush: a cross-repo fork is pushable only with maintainerCanModify (LLP 0025)', () => {
+  assert.equal(normalizePR({ number: 1, isCrossRepository: true, maintainerCanModify: false }).canPush, false)
+  assert.equal(normalizePR({ number: 2, isCrossRepository: true, maintainerCanModify: true }).canPush, true)
+  assert.equal(normalizePR({ number: 3, isCrossRepository: false }).canPush, true)
 })
 
 test('viewPR observes one PR; null on gh failure', async () => {

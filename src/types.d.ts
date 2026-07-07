@@ -104,10 +104,14 @@ export interface PrObservation {
   rollup: any[]
   /** headRefOid — every downstream fact (green, reviewed) is keyed to this. */
   headSha: string
-  /** PR body — carries the `<!-- neutral-review: <sha> -->` markers. */
+  /** PR body — carries the `<!-- neutral-review: <sha> -->` and `<!-- neutral-verdict: <sha> -->` markers. */
   body: string
-  /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). */
+  /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). `neutral:adopt` triggers foreign adoption (LLP 0025). */
   labels: string[]
+  /** Whether neutral can push a heal to the head branch (LLP 0025): `!isCrossRepository || maintainerCanModify`. Own PRs are always pushable; a cross-repo fork only while the contributor allows maintainer edits. Absent ⇒ pushable. */
+  canPush?: boolean
+  /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` label (LLP 0025). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
+  foreign?: boolean
 }
 
 /** The single rung action reconcilePR takes on a PR this tick (LLP 0009). */
@@ -115,13 +119,18 @@ export interface RungDecision {
   /** mergeable | green | reviewed | terminal. */
   rung: string
   /**
-   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge | held.
+   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge | held
+   * | approve | request-changes.
    * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
    * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
    * (shipping the PR) or sets the `neutral:stuck` label itself (LLP 0017). `selectRung` no
    * longer emits `stuck` as an action — the label, once set, short-circuits to `held`.
    * `merge` is the terminal action only when the repo opted in (`automerge`, LLP 0019):
    * flip ready if draft, then squash-merge — instead of `ready-hold`/`held`.
+   * `approve` / `request-changes` are the terminal + degraded actions for an *adopted* foreign
+   * PR (LLP 0025): they set the `neutral:approved` / `neutral:changes-requested` verdict labels
+   * instead of readying or merging a contributor's PR. `request-changes` also stands in for a
+   * heal rung (merge-base/resolve-conflict/fix-ci) neutral cannot perform when it can't push.
    */
   action: string
   reason: string

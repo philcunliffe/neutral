@@ -344,6 +344,36 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
 - **`wait`** / **`held`**: do nothing this tick.
 
+### Adopted (foreign) PRs — `neutral:adopt` (LLP 0025)
+
+A PR carrying `neutral:adopt` that neutral did **not** author is in scope by the maintainer's
+label (the authorization, exactly like `neutral:fix`; LLP 0024). `neutral prs` tags it `[adopt]`
+(or `[adopt,review-only]` when neutral cannot push to the fork) and drives the **same rung
+ladder**, with two differences: heal rungs are gated on push access, and the terminal is a
+**verdict label**, never a ready-flip or merge — readying/merging a contributor's PR is the
+maintainer's call (LLP 0000 §Autonomy).
+
+- **Full-heal** (`[adopt]`, neutral can push): `merge-base` / `resolve-conflict` / `fix-ci` /
+  `review` behave exactly as for an own PR — resolve/fix and **push to the fork's head branch**
+  (the contributor left maintainer-edits on). At the review cap the action is **`request-changes`**,
+  not `triage` (the code is the contributor's — hand residual findings back, never defer to a
+  `neutral:fix` follow-up).
+- **Review-only** (`[adopt,review-only]`, a cross-repo fork with maintainer-edits off): neutral
+  cannot push, so an unmet **`request-changes`** heal rung means *the contributor* must
+  rebase / resolve / fix CI. **`review`** still runs (it needs no push): review the head, and
+  because you cannot push a fix, post the verdict **directly** — `approve` if clean, else
+  `request-changes` — recording both `<!-- neutral-review: <sha> -->` and the verdict marker.
+- **`approve`** (terminal — mergeable ∧ green ∧ reviewed): `gh pr edit <N> --add-label
+  neutral:approved --remove-label neutral:changes-requested`, comment the verdict, and append
+  `<!-- neutral-verdict: <the head SHA> approved -->` to the body **last** — then HOLD for the
+  maintainer to merge. Never `gh pr merge` / `gh pr ready` a contributor's PR.
+- **`request-changes`**: `gh pr edit <N> --add-label neutral:changes-requested --remove-label
+  neutral:approved`, post it as `gh pr review <N> --request-changes` with the blocking findings
+  (or the rebase-/fix-CI ask), and append `<!-- neutral-verdict: <the head SHA> changes-requested -->`
+  to the body **last**, so a partial failure re-runs rather than skipping. A contributor push
+  moves the head and re-opens the ladder; an unchanged head reads as `held` (the verdict marker
+  covers it).
+
 ## Fan-out worker: Issue-fix (maintenance, LLP 0009)  — worker tier (`opus`)
 
 Goal: every open `neutral:fix` issue has a **fix attempt** — a `Fixes #N` PR, or a
@@ -398,10 +428,12 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   (LLP 0019), and even then only the `neutral prs` action decides — never merge
   on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
-- **Never `gh pr ready` (or otherwise act on) a PR neutral does not own.** In scope
-  today: own `integration/*` and `fix/issue-*` only. **Foreign-PR adoption
-  (`neutral:adopt`) is deferred** — if such a PR appears, handle it manually
-  (LLP 0008 §Scope, LLP 0009 §Deferred).
+- **Never `gh pr ready`, merge, or force-heal a PR neutral does not own.** Own PRs
+  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge`; an **adopted** foreign PR
+  (`neutral:adopt`, LLP 0025) terminates in a **verdict label** (`neutral:approved` /
+  `neutral:changes-requested`) and is never readied or merged by neutral. Push a heal to a fork
+  only when `neutral prs` reports it pushable (tagged `[adopt]`, not `[adopt,review-only]`);
+  in review-only mode neutral only reviews and posts the verdict.
 - **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
 - **Head-SHA keying.** "Green" and "reviewed" only count for the *current* head SHA;
   re-read it each tick.

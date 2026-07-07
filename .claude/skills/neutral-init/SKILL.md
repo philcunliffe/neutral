@@ -1,6 +1,6 @@
 ---
 name: neutral-init
-description: Onboard a repo onto neutral end-to-end — preflight repo status, run `neutral init` (config + baseline + CLAUDE.md convention), ref-check the LLP corpus formatting, survey the backlog to find and annotate already-built requests, and create the neutral:fix / neutral:stuck GitHub labels. Use when setting up neutral on a repo, when `neutral init` output points at the /neutral-init skill, or before starting `/loop /neutral-reconcile` for the first time.
+description: Onboard a repo onto neutral end-to-end — preflight repo status, run `neutral init` (config + baseline + CLAUDE.md convention), ref-check the LLP corpus formatting, survey the backlog to find and annotate already-built requests, and create the neutral:fix / neutral:stuck / neutral:adopt maintenance labels. Use when setting up neutral on a repo, when `neutral init` output points at the /neutral-init skill, or before starting `/loop /neutral-reconcile` for the first time.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, Skill
 ---
 
@@ -68,7 +68,7 @@ the human wants neutral to drive.
 ## 5. Labels — the maintenance-family authorization gates
 
 The maintenance reconcilers act only on labelled artifacts (LLP 0009; the label
-names are constants in neutral's `src/config.js`). Create both, idempotently
+names are constants in neutral's `src/config.js`). Create these idempotently
 (`--force` updates in place if they exist):
 
 ```sh
@@ -76,6 +76,16 @@ gh label create "neutral:fix"   --force --color 1D76DB \
   --description "delegated to neutral for a fix attempt"
 gh label create "neutral:stuck" --force --color D93F0B \
   --description "neutral could not complete this — a human must look"
+# Foreign-PR adoption (LLP 0025). `neutral:adopt` is the maintainer's authorization to
+# review+heal a PR neutral did not author; the other two are the verdicts neutral SETS
+# (in place of readying/merging a contributor's PR). Skip these on a solo repo with no
+# external contributors — the reconciler is label-gated, so absent labels simply never fire.
+gh label create "neutral:adopt" --force --color 0E8A16 \
+  --description "delegate a foreign PR to neutral to review + heal"
+gh label create "neutral:approved" --force --color 0E8A16 \
+  --description "neutral: mergeable ∧ green ∧ reviewed — held for the maintainer to merge"
+gh label create "neutral:changes-requested" --force --color FBCA04 \
+  --description "neutral: changes needed — the ball is in the contributor's court"
 ```
 
 ## 6. Verify + hand off
