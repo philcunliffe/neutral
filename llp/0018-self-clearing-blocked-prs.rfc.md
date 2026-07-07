@@ -5,7 +5,7 @@
 **Systems:** Engineer, Reviewer
 **Author:** Phil / Claude
 **Date:** 2026-06-30
-**Related:** 0000, 0002, 0003, 0008, 0009, 0015, 0016, 0017
+**Related:** 0000, 0002, 0003, 0008, 0009, 0015, 0016, 0017, 0026, 0027
 
 ## Summary
 
@@ -17,6 +17,14 @@ ever removes the label. So when a human goes and solves the blocking design issu
 (e.g. a tracked issue `#211`), neutral does not notice — the PR is held forever until a
 human manually pulls the label, and even then the ladder re-runs blind and may re-stick on
 the same fork. **There is no re-engagement path.** This RFC proposes one.
+
+> **Note (2026-07-07):** the *human* half of this space is now settled narrowly by
+> [LLP 0026](0026-stuck-report.decision.md) (the marker-signed stuck report) +
+> [LLP 0027](0027-comment-unstick.decision.md) (a human reply after the report, or a push,
+> re-engages the ladder with the reply as guidance) — i.e. `blocked-on: human` gained the
+> ground-truth signal this RFC said it lacked: the human's say-so, observed as a comment.
+> This RFC's remaining open ground is the machine-watchable dependency case
+> (`blocked-on: #N`) and the one-label collapse/rename.
 
 ## Motivation — "blocked" and "stuck" are the same mechanism
 

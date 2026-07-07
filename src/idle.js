@@ -28,8 +28,10 @@ const PR_AT_REST = 'held'
  *   - every in-scope PR's action is `held` (terminal), AND
  *   - no issue is `needs-fix`.
  *
- * `stuck` issues/PRs do NOT block idle — neutral can do nothing autonomous about them
- * (a human must look); they are surfaced, not in flight.
+ * `stuck` issues/PRs at rest do NOT block idle — a human must look; they are surfaced,
+ * not in flight. A stuck PR at rest means its report is posted and no human has replied
+ * (action `held`, LLP 0026/0027); a pending `stuck-report` or `unstick` is one tick of
+ * real work and blocks like any other non-`held` action.
  * @param {{ backlog?: Array<{number?: number, title?: string}>, implementable?: Array<{number: number, slug?: string}>, prs?: Array<{number: number, action: string}>, issues?: Array<{number: number, state: string}> }} obs
  * @returns {IdleState}
  * @ref LLP 0013#trigger [implements]

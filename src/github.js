@@ -12,10 +12,13 @@ import { run } from './git.js'
 
 // The fields reconcilePR's rungs need: mergeability, the check rollup, the head SHA
 // (every downstream fact is keyed to it), the body (carries review markers), the labels
-// (`neutral:stuck` halts auto-advance; `neutral:adopt` triggers foreign adoption), and —
-// for an adopted PR — whether neutral can push a heal to the head branch (LLP 0025).
+// (`neutral:stuck` halts auto-advance; `neutral:adopt` triggers foreign adoption), the
+// comment thread (carries the stuck report + human replies that unstick a held PR — same
+// call, no extra request per tick), and — for an adopted PR — whether neutral can push a
+// heal to the head branch (LLP 0025).
 // @ref LLP 0025#push-access-canpush [implements] — isCrossRepository/maintainerCanModify
-const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify'
+// @ref LLP 0027 [implements] — observe the comment thread the unstick predicate reads
+const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify,comments'
 
 /**
  * Numbers, head branches, and labels of every open PR. Used to enumerate + classify scope
@@ -63,7 +66,15 @@ export function normalizePR(o) {
     // every observation (a contributor can toggle it), never stored (LLP 0002). Only an
     // adopted foreign PR consults it (LLP 0025); own PRs are always pushable.
     // @ref LLP 0025#push-access-canpush [implements]
-    canPush: !o.isCrossRepository || !!o.maintainerCanModify
+    canPush: !o.isCrossRepository || !!o.maintainerCanModify,
+    // The comment thread carries the stuck report + the human replies that unstick a held
+    // PR, recognised by their `<!-- neutral-… -->` markers (LLP 0026/0027).
+    // @ref LLP 0027 [implements]
+    comments: (Array.isArray(o.comments) ? o.comments : []).map(/** @param {any} c */ c => ({
+      author: (c && c.author && c.author.login) || '',
+      body: (c && c.body) || '',
+      createdAt: (c && c.createdAt) || ''
+    }))
   }
 }
 

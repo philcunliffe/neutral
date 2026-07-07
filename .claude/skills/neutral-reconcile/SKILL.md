@@ -61,8 +61,10 @@ work, the tick verifies it.
      - `neutral prs --json` → every in-scope open PR (own `integration/*` and
        `fix/issue-*`) with the **single rung action** `reconcilePR` should take this
        tick (`merge-base | resolve-conflict | fix-ci | review | triage | ready-hold |
-       wait | held`). The CLI decides the rung from observed state — you act, you do
-       not re-decide.
+       stuck-report | unstick | wait | held`). The CLI decides the rung from observed
+       state — you act, you do not re-decide. A non-zero `guidance` field means the
+       thread carries human replies to a stuck report (LLP 0027) — feed them to any
+       worker you dispatch for that PR.
      - `neutral issues --json` → every open `neutral:fix` issue with its fix-attempt
        state (`needs-fix | attempt-exists | stuck`).
 3. **Fan out** every **branch-disjoint** gap concurrently (LLP 0010) — implement a
@@ -256,8 +258,9 @@ model here; you only re-verify and label what it returns stuck.
    `integration/<slug>`. Re-dispatch anything claimed-but-not-landed (idempotent).
    The wave loop escalates a failing task up the model ladder in place and only gives
    up once the **judgment tier** exhausts its budget (LLP 0021) — it returns those
-   task ids in `stuck`. For each, label its PR `neutral:stuck`, comment why, surface
-   it — do not re-dispatch a stuck task this tick.
+   task ids in `stuck`. For each, label its PR `neutral:stuck` and post the **stuck
+   report** (LLP 0026 — see the format below) in the same act, surface it — do not
+   re-dispatch a stuck task this tick.
 
 Then the change set's PR is driven by **reconcilePR** below (the shared spine).
 
@@ -271,6 +274,33 @@ recomputed next tick. Distinct PRs advance in **parallel** (branch-disjoint).
 
 Do NOT re-derive the rung in prose. Read it from `neutral prs --json` — the `action`
 field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
+
+**The stuck report (LLP 0026).** *Whatever* sets `neutral:stuck` on a PR — the triage
+rung, a conflict back-off, wave-loop exhaustion — must post the report comment **in
+the same act** as the label (`gh pr comment N --body …`). It is one full comment,
+written for the human who has to act:
+
+- **First line, exactly:** `<!-- neutral-stuck: <current head SHA> -->` — the marker
+  the monitoring keys on. **Every comment neutral posts must carry a
+  `<!-- neutral-… -->` marker** (neutral comments through the owner's own account, so
+  the marker — not the author — is what distinguishes it from the human; an unmarked
+  neutral comment would read as a human reply and falsely unstick the PR).
+- **What neutral was doing** — the rung/action, the change set or issue, the head.
+- **Why it cannot proceed** — the specific blocker(s): each unresolved finding, the
+  conflict backed off, the decision fork — with links.
+- **What it needs from you** — the concrete question(s), with options where they exist.
+- **How to unstick** — tell the human: *reply with a comment on this PR (or push to
+  the branch); neutral monitors this thread and will re-engage with your guidance on
+  its next tick.*
+
+**Guidance feeding (LLP 0027).** When `neutral prs` reports `guidance > 0` for a PR,
+read the thread (`gh pr view N --json comments`) and include the stuck report and
+every later human comment in the prompt of **any** worker dispatched for that PR —
+the human's reply is the input, not just a wake-up. This applies on the ticks *after*
+an unstick too (the label is gone but the guidance stands until a new report
+supersedes it). If the worker still cannot proceed, it re-sticks with a **fresh**
+report — never reuse the old one; the latest report is the baseline that decides
+which replies are new.
 
 - **First, ensure the PR exists.** A change set with merged tasks but no PR needs a
   **draft** PR `integration/<slug> → DEFAULT` (`gh pr list --head …` else
@@ -287,7 +317,9 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
   **green local test run BEFORE pushing**. The local run is a *precaution only*; CI
   (the green rung) is the authoritative gate after the push (LLP 0002 — the resolving
   agent does not grade its own merge). If it cannot get a clean resolution + green
-  local run, it **backs off (no push)** and the PR is labelled `neutral:stuck`.
+  local run, it **backs off (no push)** and the PR is labelled `neutral:stuck` +
+  given the stuck report (LLP 0026, format above — which files conflict, what the
+  two sides want, what call the human must make).
 - **`fix-ci`** (rung 2, `FAILURE`): dispatch ONE agent (**mechanical tier —
   `sonnet`**, LLP 0020 — usually a lint/dep/flaky fix, and CI re-observes next tick)
   to fix from the failing logs (`gh run view --log-failed`), in its own worktree,
@@ -327,10 +359,24 @@ field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
     rather than skipping. The marker satisfies the reviewed rung; **next tick** the PR is
     terminal → `ready-hold` flips it `gh pr ready` and HOLDS for a human to merge. The
     deferred findings ride the issue-fix reconciler (the invariants compose — LLP 0008).
-  - **Any residual finding is a true blocker** → it cannot merge safely. Comment **why** each
-    blocker is a production risk (list the non-blockers too — the human sees the whole PR),
-    label the PR `neutral:stuck`, surface it — do not split, do not churn.
+  - **Any residual finding is a true blocker** → it cannot merge safely. Label the PR
+    `neutral:stuck` and post the **stuck report** (LLP 0026, format above): why each
+    blocker is a production risk, the non-blockers too (the human sees the whole PR),
+    and what decision or input unsticks it. Surface it — do not split, do not churn.
   Skip entirely if a `neutral-triage` marker already covers the head (already triaged).
+- **`stuck-report`** (labelled `neutral:stuck`, but no marker-signed report in the
+  thread — a worker crashed between label and comment, a hand-labelled PR, or a PR
+  stuck before LLP 0026): dispatch ONE agent (**worker tier — `opus`**) to read the
+  PR (diff, checks, review history, thread) and post the stuck report (format
+  above). Idempotent — the marker is the presence predicate; next tick reads `held`.
+- **`unstick`** (labelled `neutral:stuck`, and a human replied after the latest
+  stuck report — or pushed since it): **mechanical, no agent.**
+  `gh pr edit N --remove-label neutral:stuck`, then acknowledge so the human knows
+  they were heard: `gh pr comment N --body '<!-- neutral-ack -->\nRe-engaging with
+  your guidance — <one line naming what was taken from the reply>.'` (marker-signed,
+  so the ack itself never reads as a human reply). Label removal is tidy-up to match
+  the predicate, not the trigger (LLP 0027). Next tick re-runs the real rung at the
+  current head; `guidance` stays non-zero, so the dispatched worker gets the replies.
 - **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
   `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
   not own.

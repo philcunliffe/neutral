@@ -84,6 +84,26 @@ test('collectPRs review-only degrades an unpushable fork to request-changes on a
   assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[5, true, false, 'request-changes']])
 })
 
+test('collectPRs surfaces the unstick action and the guidance count for a stuck PR with a human reply (LLP 0027)', async () => {
+  const exec = fakeWorld({
+    prs: [{ number: 5, headRefName: 'integration/auth' }],
+    views: {
+      5: {
+        number: 5, headRefName: 'integration/auth', baseRefName: 'main', isDraft: true,
+        mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'abc1234',
+        labels: [{ name: 'neutral:stuck' }],
+        comments: [
+          { author: { login: 'phil' }, body: '<!-- neutral-stuck: abc1234 -->\nStuck: which auth flow?', createdAt: '1' },
+          { author: { login: 'phil' }, body: 'use OAuth device flow', createdAt: '2' }
+        ]
+      }
+    }
+  })
+  const [p] = await collectPRs('/r', exec)
+  assert.equal(p.action, 'unstick')
+  assert.equal(p.guidance, 1) // the reply rides along so later workers get it as context
+})
+
 test('collectPRs honours the maxReviewRounds config knob', async () => {
   // A mergeable, green PR whose head is unreviewed but already carries one review
   // round: with the default bound (2) it gets another review; with a config bound of

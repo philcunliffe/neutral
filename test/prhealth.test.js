@@ -5,7 +5,8 @@ import {
   selectRung, classifyMergeable, rollupConclusion,
   parseReviewMarkers, reviewRounds, reviewedAtHead,
   parseTriageMarkers, triagedAtHead,
-  parseVerdictMarkers, verdictAtHead
+  parseVerdictMarkers, verdictAtHead,
+  latestStuckReport, isHumanComment, humanRepliesAfterStuckReport
 } from '../src/prhealth.js'
 
 /**
@@ -16,7 +17,7 @@ import {
 function pr(over = {}) {
   return {
     number: 1, head: 'integration/x', base: 'main', isDraft: true,
-    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [], headSha: 'abc1234', body: '', labels: [],
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [], headSha: 'abc1234', body: '', labels: [], comments: [],
     ...over
   }
 }
@@ -130,19 +131,30 @@ test('selectRung terminal with automerge on: merge instead of hold, gates unchan
   assert.equal(selectRung(pr({ mergeStateStatus: 'BEHIND', body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'merge-base')
   assert.equal(selectRung(pr({ rollup: [{ status: 'IN_PROGRESS' }], body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'wait')
   // ...and neutral:stuck still wins — a human-held PR is never automerged.
-  assert.equal(selectRung(pr({ labels: ['neutral:stuck'], body, headSha: 'abc1234' }), 2, AUTOMERGE).action, 'held')
+  const reported = [{ author: 'phil', body: '<!-- neutral-stuck: abc1234 -->\nstuck report', createdAt: '2026-07-07T10:00:00Z' }]
+  assert.equal(selectRung(pr({ labels: ['neutral:stuck'], body, headSha: 'abc1234', comments: reported }), 2, AUTOMERGE).action, 'held')
 })
 
-test('selectRung: neutral:stuck label is held for a human and wins over every rung', () => {
-  // A PR neutral gave up on (conflicting, failing, unreviewed) is still HELD, not
-  // churned — the label is the authorization boundary, just like for issues.
+// One report comment at the given SHA — the thread baseline for the stuck tests.
+/** @param {string} sha */
+function report(sha) {
+  return { author: 'phil', body: `<!-- neutral-stuck: ${sha} -->\nStuck: needs a design call.`, createdAt: '2026-07-07T10:00:00Z' }
+}
+
+test('selectRung: neutral:stuck wins over every rung — no report yet asks for one, else held', () => {
+  // A PR neutral gave up on (conflicting, failing, unreviewed) is never churned —
+  // the label is the authorization boundary, just like for issues. With no
+  // marker-signed report in the thread, the one action owed is posting it (LLP 0026)...
   assert.deepEqual(
     pick(selectRung(pr({ labels: ['neutral:stuck'], mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', rollup: [{ state: 'FAILURE' }] }))),
+    { rung: 'terminal', action: 'stuck-report' }
+  )
+  // ...and once the report covers the thread, the PR is held (report posted, monitoring).
+  assert.deepEqual(
+    pick(selectRung(pr({ labels: ['neutral:stuck'], comments: [report('abc1234')] }))),
     { rung: 'terminal', action: 'held' }
   )
-  // A PR that would otherwise be 'review' (unreviewed head) is held while labelled...
-  assert.equal(selectRung(pr({ labels: ['neutral:stuck'], headSha: 'abc1234' })).action, 'held')
-  // ...and the SAME PR without the label is reviewed as normal (the label is the only difference).
+  // The SAME PR without the label climbs the ladder as normal (the label is the only difference).
   assert.equal(selectRung(pr({ headSha: 'abc1234' })).action, 'review')
 })
 
@@ -196,8 +208,50 @@ test('verdict markers: parse SHAs, match head; a verdict holds until the contrib
   assert.equal(selectRung(fpr({ canPush: false, headSha: 'cafe123', mergeStateStatus: 'BEHIND', body })).action, 'request-changes')
 })
 
-test('foreign PR still respects neutral:stuck — held over every rung (LLP 0009/0025)', () => {
-  assert.equal(selectRung(fpr({ labels: ['neutral:stuck'], mergeStateStatus: 'BEHIND' })).action, 'held')
+test('foreign PR still respects neutral:stuck — the stuck classifier wins over the foreign ladder (LLP 0025/0026)', () => {
+  // stuck + a report posted at head + no reply -> held, never a foreign heal/verdict action
+  assert.equal(selectRung(fpr({ labels: ['neutral:stuck'], mergeStateStatus: 'BEHIND', comments: [report('abc1234')] })).action, 'held')
+  // stuck with no report yet -> stuck-report first (still not a foreign heal)
+  assert.equal(selectRung(fpr({ labels: ['neutral:stuck'], mergeStateStatus: 'BEHIND' })).action, 'stuck-report')
+})
+
+test('stuck report parsing: latest marker wins; human replies exclude neutral and bot comments', () => {
+  const thread = [
+    { author: 'phil', body: 'early human chatter', createdAt: '1' },
+    report('aaa0001'),
+    { author: 'phil', body: 'answered round one', createdAt: '3' },
+    report('bbb0002'), // re-stick: fresh report advances the baseline past consumed replies
+    { author: 'phil', body: '<!-- neutral-ack -->\nRe-engaging…', createdAt: '5' }, // neutral's own
+    { author: 'codecov[bot]', body: 'coverage 98%', createdAt: '6' },               // a bot
+    { author: 'phil', body: 'use option B', createdAt: '7' }                        // the signal
+  ]
+  assert.deepEqual(latestStuckReport(thread), { index: 3, sha: 'bbb0002' })
+  assert.equal(latestStuckReport([]), null)
+  assert.equal(isHumanComment(thread[4]), false) // marker-signed = neutral's own
+  assert.equal(isHumanComment(thread[5]), false) // [bot]
+  assert.equal(isHumanComment(thread[6]), true)
+  // only the reply AFTER the latest report counts — round-one's answer was consumed
+  assert.deepEqual(humanRepliesAfterStuckReport(thread).map(c => c.body), ['use option B'])
+  // no report at all -> no baseline -> no replies (a labelled PR owes stuck-report first)
+  assert.deepEqual(humanRepliesAfterStuckReport([{ author: 'phil', body: 'hi', createdAt: '1' }]), [])
+})
+
+test('selectRung stuck: a human reply after the report — or a moved head — unsticks (LLP 0027)', () => {
+  const stuck = { labels: ['neutral:stuck'], headSha: 'abc1234' }
+  // report posted, no reply yet -> held (monitoring)
+  assert.equal(selectRung(pr({ ...stuck, comments: [report('abc1234')] })).action, 'held')
+  // a human reply after the report -> unstick
+  assert.deepEqual(
+    pick(selectRung(pr({ ...stuck, comments: [report('abc1234'), { author: 'phil', body: 'go with option B', createdAt: '2' }] }))),
+    { rung: 'terminal', action: 'unstick' }
+  )
+  // neutral's own marker-signed comment and a bot's do NOT unstick
+  assert.equal(selectRung(pr({ ...stuck, comments: [report('abc1234'), { author: 'phil', body: '<!-- neutral-ack -->\nack', createdAt: '2' }] })).action, 'held')
+  assert.equal(selectRung(pr({ ...stuck, comments: [report('abc1234'), { author: 'ci[bot]', body: 'build passed', createdAt: '2' }] })).action, 'held')
+  // a head that moved since the report is a human's push -> unstick (neutral never pushes a held PR)
+  assert.equal(selectRung(pr({ ...stuck, comments: [report('beef999')] })).action, 'unstick')
+  // ...tolerating SHA abbreviation, like the review markers
+  assert.equal(selectRung(pr({ ...stuck, headSha: 'abc12340000000000000000000000000000000ff', comments: [report('abc1234')] })).action, 'held')
 })
 
 /** @param {import('../src/types.d.ts').RungDecision} d */

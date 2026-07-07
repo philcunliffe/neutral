@@ -7,7 +7,7 @@
 // @ref LLP 0009#pr-health-reconciler [implements] — the rung ladder + one-rung-per-tick
 import { DEFAULT_REVIEW_ROUNDS, STUCK_LABEL } from './config.js'
 
-/** @import { PrObservation, RungDecision } from './types.d.ts' */
+/** @import { PrObservation, PrComment, RungDecision } from './types.d.ts' */
 
 // `<!-- neutral-review: <headSha> -->` — the head a review covered, so an unchanged
 // head is not re-reviewed every tick and a new head re-opens review.
@@ -21,6 +21,19 @@ const REVIEW_MARKER_RE = /<!--\s*neutral-review:\s*([0-9a-f]{7,40})\s*-->/gi
 // follow-up issue, carried for audit (the SHA is what the predicate keys on).
 // @ref LLP 0017 [implements] — triage-at-cap defers non-blockers and ships
 const TRIAGE_MARKER_RE = /<!--\s*neutral-triage:\s*([0-9a-f]{7,40})\b[^>]*-->/gi
+
+// `<!-- neutral-stuck: <headSha> -->` — signs the STUCK REPORT comment (LLP 0026): the
+// full situation description posted when `neutral:stuck` is set. Lives in the comment
+// THREAD, not the body — the human's response channel — and is the baseline the unstick
+// predicate reads against: replies after the latest report re-engage the PR (LLP 0027).
+// @ref LLP 0026 [implements] — the marker-signed stuck report
+const STUCK_MARKER_RE = /<!--\s*neutral-stuck:\s*([0-9a-f]{7,40})\s*-->/i
+
+// Any `<!-- neutral-… -->` marker identifies a comment as neutral's OWN. Neutral posts
+// through the repo owner's gh auth, so author identity cannot tell neutral from the
+// human — the marker is the discriminator, and every comment neutral posts carries one.
+// @ref LLP 0027 [constrained-by] — human replies are recognised by the marker's absence
+const NEUTRAL_COMMENT_RE = /<!--\s*neutral-[a-z]+\b/i
 
 /**
  * SHAs of every neutral-review marker in a PR body, in document order. The count is
@@ -136,6 +149,52 @@ export function verdictAtHead(body, headSha) {
 }
 
 /**
+ * The latest stuck report in a comment thread (LLP 0026): the last comment carrying a
+ * `neutral-stuck` marker, with the head SHA it recorded at stick time. Null when the
+ * thread has no report — a labelled PR without one owes a `stuck-report` action.
+ * @param {PrComment[]} comments
+ * @returns {{index: number, sha: string} | null}
+ * @ref LLP 0026 [implements]
+ */
+export function latestStuckReport(comments) {
+  const arr = Array.isArray(comments) ? comments : []
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const m = String(arr[i]?.body || '').match(STUCK_MARKER_RE)
+    if (m) return { index: i, sha: m[1].toLowerCase() }
+  }
+  return null
+}
+
+/**
+ * True iff a comment counts as a HUMAN reply: not neutral's own (no `<!-- neutral-… -->`
+ * marker — the discriminator, since neutral posts as the repo owner's account) and not
+ * a bot's (login ends `[bot]` — CI chatter must not unstick a PR).
+ * @param {PrComment} c
+ * @returns {boolean}
+ * @ref LLP 0027 [implements] — what counts as the human's say-so
+ */
+export function isHumanComment(c) {
+  if (!c) return false
+  if (NEUTRAL_COMMENT_RE.test(String(c.body || ''))) return false
+  if (/\[bot\]$/i.test(String(c.author || ''))) return false
+  return true
+}
+
+/**
+ * The human replies posted AFTER the latest stuck report — the ground-truth unstick
+ * signal (LLP 0027). Empty when there is no report (no baseline to read against) or
+ * no qualifying reply yet. Relies on gh returning comments in chronological order.
+ * @param {PrComment[]} comments
+ * @returns {PrComment[]}
+ * @ref LLP 0027 [implements]
+ */
+export function humanRepliesAfterStuckReport(comments) {
+  const report = latestStuckReport(comments)
+  if (!report) return []
+  return (comments || []).slice(report.index + 1).filter(isHumanComment)
+}
+
+/**
  * Classify the mergeable rung from GitHub's own `mergeable` / `mergeStateStatus`
  * (LLP 0009 rung 1). `UNKNOWN` mergeability is "wait", not failure (LLP 0002:
  * not-yet-observable != false) — acting on it would storm a PR that is fine.
@@ -210,11 +269,31 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   // will not guess at, a conflict it backed off). The label is the authorization
   // boundary, exactly as it is for issues (issuefix.js): once set, the loop surfaces
   // the PR and must NOT churn it — re-review/merge-base/fix-ci would all loop forever
-  // on a PR a human has been asked to look at. `held` (not `stuck`) because the label
-  // already exists; re-emitting `stuck` would re-label and re-comment every tick.
+  // on a PR a human has been asked to look at. But the hold is no longer a dead end:
+  // it is a three-way classifier over the comment thread (LLP 0026/0027) —
+  //   no stuck report yet      → `stuck-report` (post the full situation comment;
+  //                              also heals a crash between label and comment, and
+  //                              retrofits PRs stuck before the report existed)
+  //   human replied / pushed   → `unstick` (the human's say-so, read from ground
+  //                              truth: a non-neutral, non-bot comment after the
+  //                              latest report, or a head that moved since it —
+  //                              neutral never pushes a held PR)
+  //   otherwise                → `held` (report posted, monitoring the thread)
   // @ref LLP 0009#pr-health-reconciler [constrained-by] — neutral:stuck halts auto-advance
+  // @ref LLP 0027 [implements] — the conditional hold: a reply re-engages the ladder
   if ((pr.labels || []).includes(STUCK_LABEL)) {
-    return { rung: 'terminal', action: 'held', reason: `labeled ${STUCK_LABEL} — held for a human (won't auto-advance)` }
+    const report = latestStuckReport(pr.comments || [])
+    if (!report) {
+      return { rung: 'terminal', action: 'stuck-report', reason: `labeled ${STUCK_LABEL} with no stuck report in the thread — post the full marker-signed situation report (LLP 0026)` }
+    }
+    const replies = humanRepliesAfterStuckReport(pr.comments || [])
+    if (replies.length) {
+      return { rung: 'terminal', action: 'unstick', reason: `${replies.length} human repl${replies.length === 1 ? 'y' : 'ies'} since the stuck report — remove ${STUCK_LABEL}, ack, and re-run the rungs with the guidance (LLP 0027)` }
+    }
+    if (pr.headSha && !shaEq(report.sha, pr.headSha)) {
+      return { rung: 'terminal', action: 'unstick', reason: `head moved since the stuck report (${report.sha} → ${pr.headSha}) — a human pushed; remove ${STUCK_LABEL} and re-run the rungs (LLP 0027)` }
+    }
+    return { rung: 'terminal', action: 'held', reason: `labeled ${STUCK_LABEL} — held for a human (stuck report posted; monitoring the thread for replies)` }
   }
 
   // Adopted (foreign) PRs — LLP 0025. Same strictly-ordered ladder, but heal actions are gated

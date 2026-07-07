@@ -86,6 +86,20 @@ export interface World {
 }
 
 /**
+ * One comment in a PR's thread, from `gh pr view --json comments`. Neutral posts
+ * through the repo owner's own gh auth, so `author` cannot distinguish neutral from
+ * the human — neutral's comments are recognised by their `<!-- neutral-… -->` body
+ * markers instead (LLP 0026/0027).
+ */
+export interface PrComment {
+  /** author.login; bots end in `[bot]`. */
+  author: string
+  body: string
+  /** ISO 8601; gh returns comments in chronological order. */
+  createdAt: string
+}
+
+/**
  * A PR's observed health from `gh pr view --json` — GitHub's own computation, read
  * fresh against the current head SHA (LLP 0002/0009), not the acting agent's claim.
  */
@@ -112,6 +126,8 @@ export interface PrObservation {
   canPush?: boolean
   /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` label (LLP 0025). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
   foreign?: boolean
+  /** The comment thread, chronological — carries the stuck report and the human replies that unstick a held PR (LLP 0026/0027). */
+  comments: PrComment[]
 }
 
 /** The single rung action reconcilePR takes on a PR this tick (LLP 0009). */
@@ -119,12 +135,15 @@ export interface RungDecision {
   /** mergeable | green | reviewed | terminal. */
   rung: string
   /**
-   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge | held
-   * | approve | request-changes.
+   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge |
+   * stuck-report | unstick | held | approve | request-changes.
    * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
    * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
    * (shipping the PR) or sets the `neutral:stuck` label itself (LLP 0017). `selectRung` no
-   * longer emits `stuck` as an action — the label, once set, short-circuits to `held`.
+   * longer emits `stuck` as an action — the label, once set, short-circuits into a three-way
+   * classifier over the comment thread (LLP 0026/0027): `stuck-report` when no marker-signed
+   * stuck report exists yet (post it), `unstick` when a human replied after the latest report
+   * or pushed since it (remove the label, ack, re-run the rungs next tick), else `held`.
    * `merge` is the terminal action only when the repo opted in (`automerge`, LLP 0019):
    * flip ready if draft, then squash-merge — instead of `ready-hold`/`held`.
    * `approve` / `request-changes` are the terminal + degraded actions for an *adopted* foreign

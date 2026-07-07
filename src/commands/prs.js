@@ -7,7 +7,7 @@
 // @ref LLP 0009#pr-health-reconciler [implements]
 import { run } from '../git.js'
 import { listOpenPRs, viewPR } from '../github.js'
-import { selectRung } from '../prhealth.js'
+import { selectRung, humanRepliesAfterStuckReport } from '../prhealth.js'
 import { loadConfig, ADOPT_LABEL } from '../config.js'
 
 // In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS foreign PRs a
@@ -20,17 +20,20 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
 
 /**
  * Observe every in-scope open PR and classify its rung. gh failures degrade to an
- * empty list (offline / no remote), never an exception.
+ * empty list (offline / no remote), never an exception. `guidance` counts the human
+ * replies after the latest stuck report in the thread (LLP 0027) — non-zero means
+ * every worker dispatched for this PR must be given the report + replies as context,
+ * including after the label is removed (the guidance outlives the unstick).
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, rung: string, action: string, reason: string}>>}
+ * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>>}
  */
 export async function collectPRs(repo, exec = run) {
   const { maxReviewRounds, automerge } = loadConfig(repo)
   const open = await listOpenPRs(repo, exec)
   // Own by head-branch ownership; foreign only when a maintainer explicitly adopted it (LLP 0025).
   const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL))
-  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, rung: string, action: string, reason: string}>} */
+  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>} */
   const out = []
   for (const p of inScope) {
     const obs = await viewPR(repo, p.number, exec)
@@ -38,7 +41,8 @@ export async function collectPRs(repo, exec = run) {
     // foreign ⇔ not an own head branch. An adopt label on an own PR is redundant — ownership wins.
     const foreign = !OWN_HEAD_RE.test(obs.head)
     const decision = selectRung({ ...obs, foreign }, maxReviewRounds, automerge)
-    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, canPush: obs.canPush !== false, ...decision })
+    const guidance = humanRepliesAfterStuckReport(obs.comments).length
+    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, canPush: obs.canPush !== false, guidance, ...decision })
   }
   return out
 }
@@ -58,7 +62,8 @@ export async function prsCommand(repo, args, exec = run) {
   } else {
     for (const p of prs) {
       const tag = p.foreign ? `  [adopt${p.canPush ? '' : ',review-only'}]` : ''
-      process.stdout.write(`  #${p.number}  ${p.head}${tag}  rung=${p.rung} action=${p.action} — ${p.reason}\n`)
+      const guidance = p.guidance ? ` guidance=${p.guidance}` : ''
+      process.stdout.write(`  #${p.number}  ${p.head}${tag}  rung=${p.rung} action=${p.action}${guidance} — ${p.reason}\n`)
     }
   }
   return 0

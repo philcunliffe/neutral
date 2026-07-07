@@ -32,10 +32,11 @@ test('listOpenPRs returns number+head+labels, and is empty when gh fails (offlin
 })
 
 test('normalizePR fills stable defaults from a raw gh object', () => {
-  assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }] }), {
+  assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }], comments: [{ author: { login: 'phil' }, body: 'looks stuck', createdAt: '2026-07-07T10:00:00Z', url: 'ignored' }] }), {
     number: 3, head: 'integration/y', base: 'main', isDraft: true,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [{ state: 'SUCCESS' }], headSha: 'deadbeef', body: 'b',
-    labels: ['neutral:stuck', 'enhancement'], canPush: true
+    labels: ['neutral:stuck', 'enhancement'], canPush: true,
+    comments: [{ author: 'phil', body: 'looks stuck', createdAt: '2026-07-07T10:00:00Z' }]
   })
   // missing fields default rather than throw — UNKNOWN mergeability becomes "wait" downstream
   const d = normalizePR({ number: 4 })
@@ -43,6 +44,7 @@ test('normalizePR fills stable defaults from a raw gh object', () => {
   assert.deepEqual(d.rollup, [])
   assert.deepEqual(d.labels, []) // absent labels default to [] (no stuck short-circuit)
   assert.equal(d.canPush, true) // same-repo (not cross) ⇒ always pushable
+  assert.deepEqual(d.comments, []) // absent thread defaults to [] (no report, no replies)
 })
 
 test('normalizePR canPush: a cross-repo fork is pushable only with maintainerCanModify (LLP 0025)', () => {

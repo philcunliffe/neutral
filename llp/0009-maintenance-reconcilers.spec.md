@@ -32,6 +32,14 @@ surfaced for a human, never retried blindly). The `neutral:approved` /
 `neutral:changes-requested` terminal labels arrive with foreign-PR adoption
 (deferred — see below).
 
+> **Extended-by [LLP 0026](0026-stuck-report.decision.md) / [LLP 0027](0027-comment-unstick.decision.md):**
+> on a PR, `neutral:stuck` is no longer a dead end. Every stuck PR carries a full,
+> marker-signed **stuck report** comment (`<!-- neutral-stuck: <headSHA> -->`,
+> reconciled by the `stuck-report` rung action), and a human reply after the latest
+> report — or a push moving the head — is the ground-truth **unstick** signal: the
+> `unstick` action removes the label and the next tick re-runs the rungs with the
+> reply fed to the worker as guidance.
+
 ## Issue-fix reconciler
 
 **Trigger:** an open issue labelled `neutral:fix`.
