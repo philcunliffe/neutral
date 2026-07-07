@@ -335,12 +335,20 @@ which replies are new.
   against the tree, so a weak attempt can't slip through — and round 2's fixes climb a
   tier per LLP 0021) and **positively verify** it landed (the named file/symbol
   changed in the committed tree vs pre-fix HEAD — a green suite is not proof a fix
-  landed; LLP 0002 §Reviewed). Then **record the reviewed head**: append
-  `<!-- neutral-review: <the head SHA you reviewed> -->` to the PR body
-  (`gh pr edit <N> --body …`). If you fixed findings the head has since moved, so the
-  next tick re-reviews the new head (round 2); if the review was clean the marker now
-  covers the current head and the PR is terminal. The CLI bounds this to **N=2**
-  rounds before it returns `stuck`.
+  landed; LLP 0002 §Reviewed). Then **record the round as ONE marker-signed comment
+  on the PR** (LLP 0028) — the comment IS the record; the PR body is no longer
+  edited for review state. First line, exactly:
+  `<!-- neutral-review: <the head SHA you reviewed> <clean|findings> -->` —
+  `clean` when the review found nothing actionable, `findings` when it found any
+  (fixed or not; LLP 0029) — followed by the full review a human can act on: the
+  verdict, each finding with severity and evidence (file:line), and what was fixed.
+  **Post the record whatever the outcome** — a round that leaves no comment did not
+  happen (`reviewRounds` counts these comments), and an unrecorded blocked round
+  would re-review the same head forever. No separate `gh pr edit`: the comment is
+  the single act. If you fixed findings the head has since moved, so the next tick
+  re-reviews the new head (round 2); if the review was `clean` the record covers
+  the current head and the PR is terminal. The CLI bounds this to **N=2** rounds
+  before it returns `triage`.
 - **`triage`** (rung 3, review rounds exhausted at an unreviewed head): the fix-loop hit
   `maxReviewRounds` with findings still open. **Before parking the PR, judge whether it can
   ship safely** (LLP 0017). Dispatch ONE agent (**judgment tier — `fable`**, LLP 0020 —
@@ -408,7 +416,9 @@ maintainer's call (LLP 0000 §Autonomy).
   cannot push, so an unmet **`request-changes`** heal rung means *the contributor* must
   rebase / resolve / fix CI. **`review`** still runs (it needs no push): review the head, and
   because you cannot push a fix, post the verdict **directly** — `approve` if clean, else
-  `request-changes` — recording both `<!-- neutral-review: <sha> -->` and the verdict marker.
+  `request-changes` — recording both the marker-signed review-record comment
+  (`<!-- neutral-review: <sha> <clean|findings> -->` first line; LLP 0028/0029) and the
+  verdict marker.
 - **`approve`** (terminal — mergeable ∧ green ∧ reviewed): `gh pr edit <N> --add-label
   neutral:approved --remove-label neutral:changes-requested`, comment the verdict, and append
   `<!-- neutral-verdict: <the head SHA> approved -->` to the body **last** — then HOLD for the

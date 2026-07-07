@@ -11,13 +11,15 @@ import { run } from './git.js'
 /** @import { PrObservation } from './types.d.ts' */
 
 // The fields reconcilePR's rungs need: mergeability, the check rollup, the head SHA
-// (every downstream fact is keyed to it), the body (carries review markers), the labels
-// (`neutral:stuck` halts auto-advance; `neutral:adopt` triggers foreign adoption), the
-// comment thread (carries the stuck report + human replies that unstick a held PR — same
-// call, no extra request per tick), and — for an adopted PR — whether neutral can push a
-// heal to the head branch (LLP 0025).
+// (every downstream fact is keyed to it), the body (carries the triage/verdict markers
+// and legacy review markers), the labels (`neutral:stuck` halts auto-advance;
+// `neutral:adopt` triggers foreign adoption), the comment thread (carries the
+// marker-signed review records — LLP 0028 — plus the stuck report and the human replies
+// that unstick a held PR — same call, no extra request per tick), and — for an adopted
+// PR — whether neutral can push a heal to the head branch (LLP 0025).
 // @ref LLP 0025#push-access-canpush [implements] — isCrossRepository/maintainerCanModify
 // @ref LLP 0027 [implements] — observe the comment thread the unstick predicate reads
+// @ref LLP 0028 [implements] — observe the comment thread the review records live in
 const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify,comments'
 
 /**

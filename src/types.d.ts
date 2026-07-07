@@ -100,6 +100,18 @@ export interface PrComment {
 }
 
 /**
+ * One recorded review round (LLP 0028/0029): a `<!-- neutral-review: <sha> <verdict> -->`
+ * marker, normally signing a comment — the comment IS the round (LLP 0028) — or a
+ * legacy PR-body marker (always clean: the body form was only ever written on success).
+ */
+export interface ReviewRecord {
+  /** The head SHA the round covered, possibly abbreviated. */
+  sha: string
+  /** True when the round found nothing actionable. Only a clean record covering the current head satisfies the reviewed rung; a `findings` record counts the round toward `maxReviewRounds` without satisfying it (LLP 0029). */
+  clean: boolean
+}
+
+/**
  * A PR's observed health from `gh pr view --json` — GitHub's own computation, read
  * fresh against the current head SHA (LLP 0002/0009), not the acting agent's claim.
  */
@@ -118,7 +130,7 @@ export interface PrObservation {
   rollup: any[]
   /** headRefOid — every downstream fact (green, reviewed) is keyed to this. */
   headSha: string
-  /** PR body — carries the `<!-- neutral-review: <sha> -->` and `<!-- neutral-verdict: <sha> -->` markers. */
+  /** PR body — carries the `<!-- neutral-triage: … -->` / `<!-- neutral-verdict: … -->` markers, plus legacy `<!-- neutral-review: … -->` markers (new review records live in the comment thread — LLP 0028). */
   body: string
   /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). `neutral:adopt` triggers foreign adoption (LLP 0025). */
   labels: string[]
@@ -126,7 +138,7 @@ export interface PrObservation {
   canPush?: boolean
   /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` label (LLP 0025). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
   foreign?: boolean
-  /** The comment thread, chronological — carries the stuck report and the human replies that unstick a held PR (LLP 0026/0027). */
+  /** The comment thread, chronological — carries the marker-signed review records (LLP 0028), the stuck report, and the human replies that unstick a held PR (LLP 0026/0027). */
   comments: PrComment[]
 }
 

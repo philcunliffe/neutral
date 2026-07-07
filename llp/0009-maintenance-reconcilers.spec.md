@@ -122,6 +122,14 @@ per-tick fan-out of LLP 0010.)
    > `<!-- neutral-triage: <headSHA> #M -->` marker) and the PR ships (held for a human);
    > only a true production-risk blocker yields `neutral:stuck`.
 
+   > **Extended-by [LLP 0028](0028-review-record-comment.decision.md) /
+   > [LLP 0029](0029-verdict-carrying-review-rounds.decision.md):** the review record
+   > moves from the PR body to a **marker-signed comment** — the comment *is* the round
+   > (no comment, no round) — and the marker carries a `clean|findings` verdict, so a
+   > round whose findings could not be fixed still counts toward the cap instead of
+   > re-reviewing the same head forever. Body markers remain readable as legacy clean
+   > rounds.
+
 **Terminal.** When all three rungs hold, the PR is **held for a human**: a draft is
 flipped `gh pr ready` and left for a human to merge — never auto-merged
 (LLP 0000 §Autonomy). Merging is the one act neutral never performs; it is also

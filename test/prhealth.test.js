@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   selectRung, classifyMergeable, rollupConclusion,
-  parseReviewMarkers, reviewRounds, reviewedAtHead,
+  parseReviewMarkers, reviewRecords, reviewRounds, reviewedAtHead,
   parseTriageMarkers, triagedAtHead,
   parseVerdictMarkers, verdictAtHead,
   latestStuckReport, isHumanComment, humanRepliesAfterStuckReport
@@ -45,16 +45,59 @@ test('rollupConclusion: empty is NONE, any failure dominates, else pending, else
   assert.equal(rollupConclusion([{ status: 'COMPLETED', conclusion: 'CANCELLED' }]), 'FAILURE')
 })
 
-test('review markers: parse all SHAs, count rounds, match the latest against head', () => {
+test('review records: markers parse with verdicts; bare (legacy) markers read clean (LLP 0028/0029)', () => {
   const body = 'work\n<!-- neutral-review: aaaa111 -->\nmore\n<!-- neutral-review: bbbb222 -->\n'
-  assert.deepEqual(parseReviewMarkers(body), ['aaaa111', 'bbbb222'])
-  assert.equal(reviewRounds(body), 2)
-  assert.equal(reviewRounds(''), 0)
-  // latest marker (bbbb222) must cover head; an abbreviation still matches the full oid
-  assert.equal(reviewedAtHead(body, 'bbbb222'), true)
-  assert.equal(reviewedAtHead(body, 'bbbb2220000000000000000000000000000000ff'), true)
-  assert.equal(reviewedAtHead(body, 'aaaa111'), false) // an older head is stale
-  assert.equal(reviewedAtHead('', 'bbbb222'), false)
+  assert.deepEqual(parseReviewMarkers(body), [
+    { sha: 'aaaa111', clean: true }, { sha: 'bbbb222', clean: true }
+  ])
+  assert.deepEqual(
+    parseReviewMarkers('<!-- neutral-review: cccc333 findings -->\n<!-- neutral-review: dddd444 clean -->'),
+    [{ sha: 'cccc333', clean: false }, { sha: 'dddd444', clean: true }]
+  )
+})
+
+test('review records: body legacy rounds first, then comment records in thread order (LLP 0028)', () => {
+  const body = 'work\n<!-- neutral-review: aaaa111 -->\nmore\n<!-- neutral-review: bbbb222 -->\n'
+  const comments = [
+    { author: 'phil', body: '<!-- neutral-review: cccc333 findings -->\nround 3: blocker at x.js:1', createdAt: '1' },
+    { author: 'phil', body: 'no marker — not a record', createdAt: '2' }
+  ]
+  assert.deepEqual(reviewRecords(body, comments).map(r => r.sha), ['aaaa111', 'bbbb222', 'cccc333'])
+  assert.equal(reviewRounds(body, comments), 3)
+  assert.equal(reviewRounds(body), 2) // comments optional — body alone still counts
+  assert.equal(reviewRounds('', []), 0)
+})
+
+test('reviewedAtHead: the latest record must cover head AND be clean (LLP 0029)', () => {
+  const body = 'work\n<!-- neutral-review: aaaa111 -->\nmore\n<!-- neutral-review: bbbb222 -->\n'
+  // legacy body markers still satisfy — an already-reviewed head does not re-open...
+  assert.equal(reviewedAtHead(body, [], 'bbbb222'), true)
+  assert.equal(reviewedAtHead(body, [], 'bbbb2220000000000000000000000000000000ff'), true) // abbrev matches full oid
+  assert.equal(reviewedAtHead(body, [], 'aaaa111'), false) // an older head is stale
+  assert.equal(reviewedAtHead('', [], 'bbbb222'), false)
+  // ...a clean comment record satisfies; a findings record at the SAME head does not —
+  // it is a counted, unsatisfied round (marking it reviewed would flip a blocked PR terminal)
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: beef999 clean -->\nlgtm', createdAt: '1' }]
+  const findings = [{ author: 'phil', body: '<!-- neutral-review: beef999 findings -->\nblocker at y.js:9', createdAt: '1' }]
+  assert.equal(reviewedAtHead('', clean, 'beef999'), true)
+  assert.equal(reviewedAtHead('', findings, 'beef999'), false)
+})
+
+test('selectRung: an unfixable head reaches triage at the cap instead of re-reviewing forever (LLP 0029)', () => {
+  // The churn this fixes: a blocked round left NO record, so the same head was
+  // re-reviewed every tick and maxReviewRounds never tripped. Verdict-carrying
+  // records count blocked rounds too.
+  const round1 = [{ author: 'phil', body: '<!-- neutral-review: beef999 findings -->\nblocker', createdAt: '1' }]
+  assert.equal(selectRung(pr({ headSha: 'beef999', comments: round1 })).action, 'review') // round 2 may still fix it
+  const round2 = [...round1, { author: 'phil', body: '<!-- neutral-review: beef999 findings -->\nstill blocked', createdAt: '2' }]
+  assert.equal(selectRung(pr({ headSha: 'beef999', comments: round2 })).action, 'triage')
+})
+
+test('selectRung: a clean comment record at head is terminal; a marker-signed review never reads human (LLP 0028)', () => {
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
+  assert.equal(selectRung(pr({ headSha: 'abc1234', comments: clean, isDraft: true })).action, 'ready-hold')
+  // the record carries a neutral marker, so it can never falsely unstick a held PR (LLP 0027)
+  assert.equal(isHumanComment(clean[0]), false)
 })
 
 test('selectRung climbs strictly: a lower unmet rung is always chosen first', () => {
@@ -180,6 +223,15 @@ test('foreign PR (canPush): heals like an own PR but terminal is a verdict, not 
 test('foreign PR at the review cap hands residual findings to the contributor, not triage (LLP 0025)', () => {
   const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
   assert.equal(selectRung(fpr({ headSha: 'beef999', body })).action, 'request-changes')
+  // comment records count the same rounds on a foreign PR (LLP 0028 — reuse unchanged)
+  const comments = [
+    { author: 'phil', body: '<!-- neutral-review: abc0001 findings -->\nr1', createdAt: '1' },
+    { author: 'phil', body: '<!-- neutral-review: abc0002 findings -->\nr2', createdAt: '2' }
+  ]
+  assert.equal(selectRung(fpr({ headSha: 'beef999', comments })).action, 'request-changes')
+  // and a clean record at head is the reviewed rung satisfied -> approve
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
+  assert.deepEqual(pick(selectRung(fpr({ headSha: 'abc1234', comments: clean }))), { rung: 'terminal', action: 'approve' })
 })
 
 test('foreign PR (review-only, !canPush): heal rungs degrade to request-changes (LLP 0025)', () => {

@@ -77,7 +77,11 @@ the terminal rung sets a label instead of flipping ready:
 contributor acts; `stuck` = a maintainer acts.
 
 The head-SHA review marker (`<!-- neutral-review: <sha> -->`) is reused unchanged — this is
-why LLP 0009 kept it out of the deferral. Triage-at-cap (LLP 0017) is an **own-PR**
+why LLP 0009 kept it out of the deferral.
+> **Extended-by [LLP 0028](0028-review-record-comment.decision.md) /
+> [LLP 0029](0029-verdict-carrying-review-rounds.decision.md):** the review record is now a
+> marker-signed *comment* carrying a `clean|findings` verdict; body markers read as legacy.
+> Adopted PRs use the same record — the reuse-unchanged property is preserved. Triage-at-cap (LLP 0017) is an **own-PR**
 mechanism: it defers residual non-blockers to a `neutral:fix` follow-up issue against merged
 code. A foreign PR is unmerged and its code is the contributor's, so residual non-blockers
 ride in the `changes-requested` comment as optional, not a follow-up issue.

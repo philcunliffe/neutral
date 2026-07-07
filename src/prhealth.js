@@ -7,12 +7,18 @@
 // @ref LLP 0009#pr-health-reconciler [implements] — the rung ladder + one-rung-per-tick
 import { DEFAULT_REVIEW_ROUNDS, STUCK_LABEL } from './config.js'
 
-/** @import { PrObservation, PrComment, RungDecision } from './types.d.ts' */
+/** @import { PrObservation, PrComment, ReviewRecord, RungDecision } from './types.d.ts' */
 
-// `<!-- neutral-review: <headSha> -->` — the head a review covered, so an unchanged
-// head is not re-reviewed every tick and a new head re-opens review.
-// @ref LLP 0009#pr-health-reconciler [implements] — head-SHA review marker
-const REVIEW_MARKER_RE = /<!--\s*neutral-review:\s*([0-9a-f]{7,40})\s*-->/gi
+// `<!-- neutral-review: <headSha> <clean|findings> -->` — one review ROUND. The record
+// is a marker-signed COMMENT (LLP 0028): the comment is the round — no comment, no
+// round, so a review cannot count without leaving the human-readable evidence — and
+// the verdict word decides whether the round *satisfies* the rung (LLP 0029): `clean`
+// covers the head; `findings` counts toward the cap without covering it. A bare
+// marker (no verdict) reads as `clean` — the legacy body form, which was only ever
+// written on success and is still parsed so already-reviewed heads do not re-open.
+// @ref LLP 0028 [implements] — the review record is a marker-signed comment
+// @ref LLP 0029 [implements] — verdict-carrying rounds; a blocked round still counts
+const REVIEW_MARKER_RE = /<!--\s*neutral-review:\s*([0-9a-f]{7,40})(?:\s+(clean|findings))?\s*-->/gi
 
 // `<!-- neutral-triage: <headSha> #M -->` — the head at which the review fix-loop hit
 // `maxReviewRounds` and the residual findings were judged non-blocking and DEFERRED to
@@ -36,26 +42,48 @@ const STUCK_MARKER_RE = /<!--\s*neutral-stuck:\s*([0-9a-f]{7,40})\s*-->/i
 const NEUTRAL_COMMENT_RE = /<!--\s*neutral-[a-z]+\b/i
 
 /**
- * SHAs of every neutral-review marker in a PR body, in document order. The count is
- * the number of review rounds completed; the last is the most recently reviewed head.
- * @param {string} body
- * @returns {string[]}
+ * Every review record in one text, in document order: the head each round covered and
+ * whether it was clean (LLP 0029 — a bare marker reads clean, the legacy semantics).
+ * @param {string} text
+ * @returns {ReviewRecord[]}
  */
-export function parseReviewMarkers(body) {
-  /** @type {string[]} */
-  const shas = []
-  for (const m of String(body || '').matchAll(REVIEW_MARKER_RE)) shas.push(m[1].toLowerCase())
-  return shas
+export function parseReviewMarkers(text) {
+  /** @type {ReviewRecord[]} */
+  const records = []
+  for (const m of String(text || '').matchAll(REVIEW_MARKER_RE)) {
+    records.push({ sha: m[1].toLowerCase(), clean: m[2] !== 'findings' })
+  }
+  return records
 }
 
 /**
- * How many review rounds have completed = how many markers the body carries. Bounds
- * the fix loop (LLP 0009 rung 3): past the cap with the head still unreviewed = stuck.
+ * All review records for a PR, in round order: legacy body markers first (they
+ * predate LLP 0028 and were only written on success, so they read clean), then the
+ * marker-signed comments in thread order — the record proper (LLP 0028: the comment
+ * IS the round). Relies on gh returning comments in chronological order.
  * @param {string} body
+ * @param {PrComment[]} [comments]
+ * @returns {ReviewRecord[]}
+ * @ref LLP 0028 [implements] — records derive from the thread; the body is legacy-read
+ */
+export function reviewRecords(body, comments) {
+  const records = parseReviewMarkers(body)
+  const arr = Array.isArray(comments) ? comments : []
+  for (const c of arr) records.push(...parseReviewMarkers(c && c.body || ''))
+  return records
+}
+
+/**
+ * How many review rounds have completed = how many records the PR carries, clean or
+ * findings alike (LLP 0029 — a bound that only counted successes could not bound the
+ * unfixable-findings loop). Bounds the fix loop (LLP 0009 rung 3): past the cap with
+ * the head still unreviewed = triage.
+ * @param {string} body
+ * @param {PrComment[]} [comments]
  * @returns {number}
  */
-export function reviewRounds(body) {
-  return parseReviewMarkers(body).length
+export function reviewRounds(body, comments) {
+  return reviewRecords(body, comments).length
 }
 
 /**
@@ -72,17 +100,21 @@ function shaEq(a, b) {
 }
 
 /**
- * True iff the latest review marker covers the current head SHA. A new head (our own
- * fix, or a human's push) leaves no covering marker, re-opening review (LLP 0002:
- * a review of a prior commit is stale).
+ * True iff the latest review record covers the current head SHA AND was clean. A new
+ * head (our own fix, or a human's push) leaves no covering record, re-opening review
+ * (LLP 0002: a review of a prior commit is stale); a `findings` record at the head is
+ * a counted round that does NOT satisfy the rung (LLP 0029 — marking a blocked head
+ * reviewed would flip it falsely terminal).
  * @param {string} body
+ * @param {PrComment[]} comments
  * @param {string} headSha
  * @returns {boolean}
  */
-export function reviewedAtHead(body, headSha) {
-  const shas = parseReviewMarkers(body)
-  if (!shas.length || !headSha) return false
-  return shaEq(shas[shas.length - 1], headSha)
+export function reviewedAtHead(body, comments, headSha) {
+  const records = reviewRecords(body, comments)
+  if (!records.length || !headSha) return false
+  const last = records[records.length - 1]
+  return last.clean && shaEq(last.sha, headSha)
 }
 
 /**
@@ -315,15 +347,16 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   if (g === 'PENDING') return { rung: 'green', action: 'wait', reason: 'checks pending at head — wait (no fix-storm mid-run)' }
 
   // Rung 3 — reviewed (keyed to the current head SHA). A head counts as reviewed by a
-  // clean review marker OR a triage marker: at the round cap, residual findings judged
-  // non-blocking are deferred to a `neutral:fix` follow-up and the head ships (LLP 0017),
-  // so a triage marker satisfies this rung just as a review marker does.
+  // clean review record in the thread (LLP 0028/0029; legacy body markers still read)
+  // OR a triage marker: at the round cap, residual findings judged non-blocking are
+  // deferred to a `neutral:fix` follow-up and the head ships (LLP 0017), so a triage
+  // marker satisfies this rung just as a clean review record does.
   // @ref LLP 0017 [implements] — triage at the cap replaces a blanket stuck
-  if (!reviewedAtHead(pr.body, pr.headSha) && !triagedAtHead(pr.body, pr.headSha)) {
-    if (reviewRounds(pr.body) >= maxReviewRounds) {
+  if (!reviewedAtHead(pr.body, pr.comments, pr.headSha) && !triagedAtHead(pr.body, pr.headSha)) {
+    if (reviewRounds(pr.body, pr.comments) >= maxReviewRounds) {
       return { rung: 'reviewed', action: 'triage', reason: `${maxReviewRounds} review round(s) exhausted — triage residual findings (defer non-blockers to neutral:fix, else neutral:stuck)` }
     }
-    return { rung: 'reviewed', action: 'review', reason: 'head not yet reviewed — run the review, fix findings, mark the reviewed head' }
+    return { rung: 'reviewed', action: 'review', reason: 'head not yet reviewed — run the review, fix findings, post the marker-signed review record comment' }
   }
 
   // Terminal — mergeable ∧ green ∧ reviewed: hold for a human, never merge —
@@ -389,8 +422,8 @@ function foreignRung(pr, maxReviewRounds) {
   // residual is handed to the CONTRIBUTOR (request-changes) rather than deferred to a
   // neutral:fix follow-up — triage (LLP 0017) is an own-PR mechanism (the code is the
   // contributor's here). Review-only: the `review` action posts the verdict directly.
-  if (!reviewedAtHead(pr.body, pr.headSha)) {
-    if (canPush && reviewRounds(pr.body) >= maxReviewRounds) {
+  if (!reviewedAtHead(pr.body, pr.comments, pr.headSha)) {
+    if (canPush && reviewRounds(pr.body, pr.comments) >= maxReviewRounds) {
       return { rung: 'reviewed', action: 'request-changes', reason: `${maxReviewRounds} review round(s) exhausted — hand residual findings to the contributor (neutral:changes-requested)` }
     }
     return { rung: 'reviewed', action: 'review', reason: 'head not reviewed — review; approve if clean, else request changes' }
