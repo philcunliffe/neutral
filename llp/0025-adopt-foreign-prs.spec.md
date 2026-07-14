@@ -85,6 +85,12 @@ why LLP 0009 kept it out of the deferral.
 mechanism: it defers residual non-blockers to a `neutral:fix` follow-up issue against merged
 code. A foreign PR is unmerged and its code is the contributor's, so residual non-blockers
 ride in the `changes-requested` comment as optional, not a follow-up issue.
+> **Extended-by [LLP 0030](0030-approved-label-own-held-prs.decision.md):** `neutral:approved`
+> is no longer adopt-only. Own PRs at the `ready-hold`/`held` terminal also carry it, set
+> idempotently at the ready-flip, so the label means "neutral reviewed this at head and holds
+> it for a human merge" uniformly across own and adopted PRs. The terminal *action* still
+> differs — own PRs also flip ready (they are neutral's to ready); the "label instead of a
+> ready-flip" wording above stays exact for foreign PRs.
 
 ## Ground truth
 

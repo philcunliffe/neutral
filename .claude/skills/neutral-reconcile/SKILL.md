@@ -385,9 +385,12 @@ which replies are new.
   so the ack itself never reads as a human reply). Label removal is tidy-up to match
   the predicate, not the trigger (LLP 0027). Next tick re-runs the real rung at the
   current head; `guidance` stays non-zero, so the dispatched worker gets the replies.
-- **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
+- **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft): set
+  `neutral:approved` idempotently (`gh pr edit <N> --add-label neutral:approved` —
+  set-if-absent; the label caches this terminal derivation, LLP 0030), then
   `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
-  not own.
+  not own. The approved label on an own PR is *additive* to the ready-flip — an
+  adopted PR still gets the label instead of a ready-flip (LLP 0025/0030).
 - **`merge`** (terminal, only when the repo opted in with `automerge: true` —
   LLP 0019): `gh pr ready <N>` if still a draft, then `gh pr merge <N> --squash`
   (squash-only-at-the-final-PR, as for a human merge). No `--delete-branch` — the
@@ -485,9 +488,10 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
 - **Never `gh pr ready`, merge, or force-heal a PR neutral does not own.** Own PRs
-  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge`; an **adopted** foreign PR
+  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge` (also carrying
+  `neutral:approved` at the held terminal — LLP 0030); an **adopted** foreign PR
   (`neutral:adopt`, LLP 0025) terminates in a **verdict label** (`neutral:approved` /
-  `neutral:changes-requested`) and is never readied or merged by neutral. Push a heal to a fork
+  `neutral:changes-requested`) *instead of* a ready-flip, and is never readied or merged by neutral. Push a heal to a fork
   only when `neutral prs` reports it pushable (tagged `[adopt]`, not `[adopt,review-only]`);
   in review-only mode neutral only reviews and posts the verdict.
 - **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
