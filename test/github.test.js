@@ -1,18 +1,19 @@
 // @ts-check
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { listOpenPRs, viewPR, normalizePR, listLabelledIssues, listOpenPRBodies } from '../src/github.js'
+import { listOpenPRs, listMergedAdoptPRs, viewPR, normalizePR, listLabelledIssues, listOpenPRBodies } from '../src/github.js'
 
 /**
  * A fake `gh` runner keyed by subcommand. `fail` makes every call throw (offline).
- * @param {{prList?: any, prView?: any, issueList?: any, prBodies?: any, fail?: boolean}} cfg
+ * @param {{prList?: any, prView?: any, issueList?: any, prBodies?: any, mergedList?: any, fail?: boolean}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeGh({ prList, prView, issueList, prBodies, fail = false } = {}) {
+function fakeGh({ prList, prView, issueList, prBodies, mergedList, fail = false } = {}) {
   return async (cmd, args) => {
     if (fail) { const e = new Error('gh: no remote'); /** @type {any} */ (e).code = 1; throw e }
     assert.equal(cmd, 'gh')
     if (args[0] === 'pr' && args[1] === 'list') {
+      if (args[args.indexOf('--state') + 1] === 'merged') return JSON.stringify(mergedList)
       const fields = args[args.indexOf('--json') + 1]
       return JSON.stringify(fields.includes('body') ? prBodies : prList)
     }
@@ -29,6 +30,14 @@ test('listOpenPRs returns number+head+labels, and is empty when gh fails (offlin
     { number: 2, headRefName: 'contrib/patch', labels: ['neutral:adopt'] }
   ])
   assert.deepEqual(await listOpenPRs('/r', fakeGh({ fail: true })), [])
+})
+
+test('listMergedAdoptPRs filters by state+label via gh, and is empty when gh fails (LLP 0031)', async () => {
+  const exec = fakeGh({ mergedList: [{ number: 7, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:approved' }] }] })
+  assert.deepEqual(await listMergedAdoptPRs('/r', exec), [
+    { number: 7, headRefName: 'contrib/patch', labels: ['neutral:adopt', 'neutral:approved'] }
+  ])
+  assert.deepEqual(await listMergedAdoptPRs('/r', fakeGh({ fail: true })), [])
 })
 
 test('normalizePR fills stable defaults from a raw gh object', () => {

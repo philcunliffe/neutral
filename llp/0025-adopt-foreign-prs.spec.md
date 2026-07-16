@@ -63,6 +63,13 @@ neutral can give a fork it cannot touch.
 Readying or merging a contributor's PR is the maintainer's call (LLP 0000 §Autonomy), so
 the terminal rung sets a label instead of flipping ready:
 
+> **Extended-by [LLP 0030](0030-own-pr-approved-label.decision.md):** `neutral:approved` is no
+> longer foreign-only. Neutral's **own** PRs now also carry it at their reviewed-clean terminal
+> (`ready-hold`/`held`), synced head-accurately by the skill to the rung's `approved` field
+> (added at the terminal, stripped on any regression). This section's framing of the label as
+> the *foreign* terminal is unchanged; LLP 0030 only adds the own-PR use, via a label sync
+> rather than a body verdict marker.
+
 - **`neutral:approved`** — mergeable ∧ green ∧ reviewed-clean at the current head. Held for
   the maintainer to merge. Re-derived each tick (LLP 0002); a contributor push moves the
   head, the review marker no longer covers it, and the verdict re-opens automatically.
@@ -70,6 +77,11 @@ the terminal rung sets a label instead of flipping ready:
   findings still unresolved past `maxReviewRounds`, or — in review-only mode — a branch that
   is `BEHIND`/`DIRTY`/red that only the contributor can rebase or fix. The label's comment
   carries what must change.
+
+> **Extended-by [LLP 0031](0031-adopted-label.decision.md):** the verdict is no longer the
+> last signal an adoption emits — once the maintainer merges an adopted PR, it gains
+> `neutral:adopted`, the completion record (a cache of merged ∧ adopt-labelled, re-derived
+> each tick; add-only, since a merged head can never move again).
 
 `neutral:stuck` stays reserved for the case where **neutral itself** cannot proceed and a
 *maintainer* is needed — e.g. `canPush` but the conflict-resolution agent backed off

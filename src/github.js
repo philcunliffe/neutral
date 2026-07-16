@@ -7,6 +7,7 @@
 // degrades to empty rather than throwing, so the deterministic suite stays offline.
 // @ref LLP 0009#pr-health-reconciler [implements] — observe in-scope PRs/issues
 import { run } from './git.js'
+import { ADOPT_LABEL } from './config.js'
 
 /** @import { PrObservation } from './types.d.ts' */
 
@@ -34,6 +35,30 @@ const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeSt
 export async function listOpenPRs(repo, exec = run) {
   try {
     const out = await exec('gh', ['pr', 'list', '--state', 'open', '--json', 'number,headRefName,labels', '--limit', '200'], repo)
+    const arr = JSON.parse(out)
+    return Array.isArray(arr) ? arr.map(p => ({
+      number: p.number,
+      headRefName: p.headRefName || '',
+      labels: (Array.isArray(p.labels) ? p.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || '')
+    })) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * MERGED PRs that carry `neutral:adopt` — the enumeration surface for the adoption
+ * completion record (LLP 0031). gh filters by state+label; the labels ride along so the
+ * pure classifier (`prhealth.needsAdoptedLabel`) can spot a merged adoption still missing
+ * `neutral:adopted`. Empty on any gh failure.
+ * @param {string} repo
+ * @param {typeof run} [exec]
+ * @returns {Promise<Array<{number: number, headRefName: string, labels: string[]}>>}
+ * @ref LLP 0031 [implements] — observe merged adoptions
+ */
+export async function listMergedAdoptPRs(repo, exec = run) {
+  try {
+    const out = await exec('gh', ['pr', 'list', '--state', 'merged', '--label', ADOPT_LABEL, '--json', 'number,headRefName,labels', '--limit', '200'], repo)
     const arr = JSON.parse(out)
     return Array.isArray(arr) ? arr.map(p => ({
       number: p.number,

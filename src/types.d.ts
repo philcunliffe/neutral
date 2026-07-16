@@ -148,7 +148,7 @@ export interface RungDecision {
   rung: string
   /**
    * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge |
-   * stuck-report | unstick | held | approve | request-changes.
+   * stuck-report | unstick | held | approve | request-changes | mark-adopted.
    * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
    * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
    * (shipping the PR) or sets the `neutral:stuck` label itself (LLP 0017). `selectRung` no
@@ -162,9 +162,21 @@ export interface RungDecision {
    * PR (LLP 0025): they set the `neutral:approved` / `neutral:changes-requested` verdict labels
    * instead of readying or merging a contributor's PR. `request-changes` also stands in for a
    * heal rung (merge-base/resolve-conflict/fix-ci) neutral cannot perform when it can't push.
+   * `mark-adopted` is the one action emitted for a *merged* PR: an adoption that landed
+   * (merged ∧ `neutral:adopt`) but does not yet carry its `neutral:adopted` completion record
+   * (LLP 0031) — a mechanical label add, set-if-absent, so it fires at most once per PR.
    */
   action: string
   reason: string
+  /**
+   * Own PRs only (LLP 0030): `true` at the reviewed-clean terminal (mergeable ∧ green ∧
+   * reviewed, not stuck — i.e. `ready-hold` / `held` / `merge`). The skill syncs the
+   * `neutral:approved` label to this field each tick: added when `true`, removed otherwise, so
+   * the label tracks the current reviewed-clean head and never goes stale. Absent/falsy on
+   * every heal/review/stuck/triage rung and on foreign PRs (which use the verdict label via
+   * `approve`).
+   */
+  approved?: boolean
 }
 
 /** One reason a tick is not idle: a gap still in flight in one of the families (LLP 0013). */

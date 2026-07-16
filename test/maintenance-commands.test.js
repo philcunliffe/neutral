@@ -10,16 +10,19 @@ import { collectIssues } from '../src/commands/issues.js'
 /**
  * A fake runner that answers both `git` (for-each-ref) and `gh` (pr/issue), so the
  * maintenance observe surface can be exercised fully offline.
- * @param {{prs?: any[], views?: Record<number, any>, issues?: any[], fixBranches?: string[]}} cfg
+ * @param {{prs?: any[], views?: Record<number, any>, issues?: any[], fixBranches?: string[], mergedPrs?: any[]}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [] } = {}) {
+function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [], mergedPrs = [] } = {}) {
   return async (cmd, args) => {
     if (cmd === 'git' && args[0] === 'for-each-ref') {
       // only the `fix/*` lookup is exercised here
       return fixBranches.join('\n') + '\n'
     }
     if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+      if (args[args.indexOf('--state') + 1] === 'merged') {
+        return JSON.stringify(mergedPrs.map(p => ({ number: p.number, headRefName: p.headRefName, labels: p.labels || [] })))
+      }
       const fields = args[args.indexOf('--json') + 1]
       return JSON.stringify(prs.map(p => fields.includes('body')
         ? { number: p.number, body: p.body || '', headRefName: p.headRefName }
@@ -82,6 +85,18 @@ test('collectPRs review-only degrades an unpushable fork to request-changes on a
   })
   const got = await collectPRs('/r', exec)
   assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[5, true, false, 'request-changes']])
+})
+
+test('collectPRs owes a merged adoption its completion record exactly once (LLP 0031)', async () => {
+  const exec = fakeWorld({
+    mergedPrs: [
+      { number: 6, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:approved' }] }, // owed
+      { number: 7, headRefName: 'contrib/other', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:adopted' }] },  // recorded -> silent
+      { number: 8, headRefName: 'integration/own', labels: [{ name: 'neutral:adopt' }] }                              // own head -> not an adoption
+    ]
+  })
+  const got = await collectPRs('/r', exec)
+  assert.deepEqual(got.map(p => [p.number, p.rung, p.action]), [[6, 'terminal', 'mark-adopted']])
 })
 
 test('collectPRs surfaces the unstick action and the guidance count for a stuck PR with a human reply (LLP 0027)', async () => {

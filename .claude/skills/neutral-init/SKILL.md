@@ -1,6 +1,6 @@
 ---
 name: neutral-init
-description: Onboard a repo onto neutral end-to-end — preflight repo status, run `neutral init` (config + baseline + CLAUDE.md convention), ref-check the LLP corpus formatting, survey the backlog to find and annotate already-built requests, and create the neutral:fix / neutral:stuck / neutral:adopt maintenance labels. Use when setting up neutral on a repo, when `neutral init` output points at the /neutral-init skill, or before starting `/loop /neutral-reconcile` for the first time.
+description: Onboard a repo onto neutral end-to-end — preflight repo status, run `neutral init` (config + baseline + CLAUDE.md convention), ref-check the LLP corpus formatting, survey the backlog to find and annotate already-built requests, and create the full neutral:* maintenance label set (fix, stuck, adopt, approved, changes-requested, adopted). Use when setting up neutral on a repo, when `neutral init` output points at the /neutral-init skill, or before starting `/loop /neutral-reconcile` for the first time.
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, Skill
 ---
 
@@ -86,6 +86,8 @@ gh label create "neutral:approved" --force --color 0E8A16 \
   --description "neutral: mergeable ∧ green ∧ reviewed — held for the maintainer to merge"
 gh label create "neutral:changes-requested" --force --color FBCA04 \
   --description "neutral: changes needed — the ball is in the contributor's court"
+gh label create "neutral:adopted" --force --color 5319E7 \
+  --description "neutral: adoption completed — merged while delegated via neutral:adopt"
 ```
 
 ## 6. Verify + hand off

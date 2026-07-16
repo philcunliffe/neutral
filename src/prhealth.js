@@ -5,7 +5,7 @@
 // is chosen per tick: any push moves the head SHA, so every downstream fact is
 // re-derived next tick rather than stacked on a stale read.
 // @ref LLP 0009#pr-health-reconciler [implements] — the rung ladder + one-rung-per-tick
-import { DEFAULT_REVIEW_ROUNDS, STUCK_LABEL } from './config.js'
+import { ADOPT_LABEL, ADOPTED_LABEL, DEFAULT_REVIEW_ROUNDS, STUCK_LABEL } from './config.js'
 
 /** @import { PrObservation, PrComment, ReviewRecord, RungDecision } from './types.d.ts' */
 
@@ -150,8 +150,12 @@ export function triagedAtHead(body, headSha) {
 // and triage markers: the verdict stands until the *contributor* pushes a new head, which
 // re-opens it — base movement alone does not (an adopted PR's ball is out of neutral's court
 // once a verdict is posted, unlike an own PR that neutral keeps rebased). Own PRs never carry
-// this — they terminate in a ready-hold/merge, not a verdict label.
+// this body marker: they need no persisted idempotency record because neutral re-derives their
+// terminal from git every tick and syncs the `neutral:approved` label to the decision's
+// `approved` field head-accurately (LLP 0030) — the label tracks the current reviewed-clean
+// head and is stripped the instant the PR regresses, so nothing to record in the body.
 // @ref LLP 0025#ground-truth [implements] — head-keyed verdict marker for adopted PRs
+// @ref LLP 0030 [implements] — own PRs carry neutral:approved via the recomputed `approved` field, not this marker
 const VERDICT_MARKER_RE = /<!--\s*neutral-verdict:\s*([0-9a-f]{7,40})\b[^>]*-->/gi
 
 /**
@@ -178,6 +182,22 @@ export function parseVerdictMarkers(body) {
 export function verdictAtHead(body, headSha) {
   if (!headSha) return false
   return parseVerdictMarkers(body).some(sha => shaEq(sha, headSha))
+}
+
+/**
+ * True iff a MERGED adopted PR still owes its completion record — it carries the
+ * maintainer's `neutral:adopt` but not yet `neutral:adopted` (LLP 0031). The caller
+ * guarantees "merged" (the enumeration is `gh pr list --state merged`); this is the
+ * remaining pure half of the derivation `adopted ≡ merged ∧ adopt-labelled`. Once the
+ * label is set the PR never matches again — set-if-absent, so the work-list
+ * self-terminates.
+ * @param {string[]} labels
+ * @returns {boolean}
+ * @ref LLP 0031 [implements] — the completion-record gap predicate
+ */
+export function needsAdoptedLabel(labels) {
+  const l = Array.isArray(labels) ? labels : []
+  return l.includes(ADOPT_LABEL) && !l.includes(ADOPTED_LABEL)
 }
 
 /**
@@ -364,9 +384,15 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   // every gate above (fresh-head green, fresh-head review, the stuck override)
   // was already satisfied to get here.
   // @ref LLP 0019 [implements] — opt-in automerge relaxes the hold, never the gates
-  if (automerge) return { rung: 'terminal', action: 'merge', reason: 'mergeable ∧ green ∧ reviewed, automerge on — flip ready if draft, then squash-merge' }
-  if (pr.isDraft) return { rung: 'terminal', action: 'ready-hold', reason: 'mergeable ∧ green ∧ reviewed — flip ready, then HOLD' }
-  return { rung: 'terminal', action: 'held', reason: 'already held for a human — nothing to do' }
+  //
+  // `approved: true` marks this own PR's reviewed-clean terminal (mergeable ∧ green ∧ reviewed,
+  // not stuck — the stuck and foreign branches returned above). The skill syncs the
+  // `neutral:approved` label to this field each tick, so the label is added here and stripped
+  // the moment the PR leaves this terminal (any heal/review/stuck rung omits the field).
+  // @ref LLP 0030 [implements] — head-accurate neutral:approved on own PRs
+  if (automerge) return { rung: 'terminal', action: 'merge', reason: 'mergeable ∧ green ∧ reviewed, automerge on — flip ready if draft, then squash-merge', approved: true }
+  if (pr.isDraft) return { rung: 'terminal', action: 'ready-hold', reason: 'mergeable ∧ green ∧ reviewed — flip ready, then HOLD', approved: true }
+  return { rung: 'terminal', action: 'held', reason: 'already held for a human — nothing to do', approved: true }
 }
 
 /**

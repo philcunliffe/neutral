@@ -5,7 +5,7 @@ import {
   selectRung, classifyMergeable, rollupConclusion,
   parseReviewMarkers, reviewRecords, reviewRounds, reviewedAtHead,
   parseTriageMarkers, triagedAtHead,
-  parseVerdictMarkers, verdictAtHead,
+  parseVerdictMarkers, verdictAtHead, needsAdoptedLabel,
   latestStuckReport, isHumanComment, humanRepliesAfterStuckReport
 } from '../src/prhealth.js'
 
@@ -98,6 +98,40 @@ test('selectRung: a clean comment record at head is terminal; a marker-signed re
   assert.equal(selectRung(pr({ headSha: 'abc1234', comments: clean, isDraft: true })).action, 'ready-hold')
   // the record carries a neutral marker, so it can never falsely unstick a held PR (LLP 0027)
   assert.equal(isHumanComment(clean[0]), false)
+})
+
+test('selectRung: an own PR carries approved:true at every reviewed-clean terminal (LLP 0030)', () => {
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
+  const readyHold = selectRung(pr({ headSha: 'abc1234', comments: clean, isDraft: true }))
+  assert.equal(readyHold.action, 'ready-hold')
+  assert.equal(readyHold.approved, true)
+  const held = selectRung(pr({ headSha: 'abc1234', comments: clean, isDraft: false }))
+  assert.equal(held.action, 'held')
+  assert.equal(held.approved, true)
+  // automerge terminal is still the reviewed-clean state -> approved
+  const merged = selectRung(pr({ headSha: 'abc1234', comments: clean, isDraft: false }), undefined, true)
+  assert.equal(merged.action, 'merge')
+  assert.equal(merged.approved, true)
+})
+
+test('selectRung: no approved on any own-PR heal/review/stuck rung, so the label is head-accurate (LLP 0030)', () => {
+  // unreviewed head -> review
+  assert.ok(!selectRung(pr({ headSha: 'abc1234' })).approved)
+  // red CI -> fix-ci
+  assert.ok(!selectRung(pr({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).approved)
+  // BEHIND -> merge-base: the regression case — an approved PR that falls behind loses the label
+  assert.ok(!selectRung(pr({ mergeStateStatus: 'BEHIND' })).approved)
+  // stuck (report posted, no reply) -> held, but NEVER approved (stuck != reviewed-clean)
+  const stuck = selectRung(pr({ labels: ['neutral:stuck'], comments: [{ author: 'phil', body: '<!-- neutral-stuck: abc1234 -->\nneed input', createdAt: '1' }] }))
+  assert.equal(stuck.action, 'held')
+  assert.ok(!stuck.approved)
+})
+
+test('selectRung: a foreign reviewed-clean PR terminates in approve, not the own-PR approved field (LLP 0025/0030)', () => {
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
+  const d = selectRung(pr({ foreign: true, headSha: 'abc1234', comments: clean, isDraft: false }))
+  assert.equal(d.action, 'approve') // foreign verdict label via `approve`, unchanged
+  assert.ok(!d.approved) // the own-PR field stays off for foreign PRs
 })
 
 test('selectRung climbs strictly: a lower unmet rung is always chosen first', () => {
@@ -258,6 +292,18 @@ test('verdict markers: parse SHAs, match head; a verdict holds until the contrib
   assert.equal(selectRung(fpr({ canPush: false, headSha: 'beef999', mergeStateStatus: 'BEHIND', body })).action, 'held')
   // ...but a new head (the contributor pushed) leaves the marker stale and re-opens the ladder
   assert.equal(selectRung(fpr({ canPush: false, headSha: 'cafe123', mergeStateStatus: 'BEHIND', body })).action, 'request-changes')
+})
+
+test('needsAdoptedLabel: a merged adoption owes the completion record exactly once (LLP 0031)', () => {
+  // adopt without adopted -> owes the record
+  assert.equal(needsAdoptedLabel(['neutral:adopt']), true)
+  assert.equal(needsAdoptedLabel(['neutral:adopt', 'neutral:approved']), true)
+  // record already set -> set-if-absent, never again
+  assert.equal(needsAdoptedLabel(['neutral:adopt', 'neutral:adopted']), false)
+  // never delegated -> nothing to record (the caller already filtered on merged)
+  assert.equal(needsAdoptedLabel(['neutral:adopted']), false)
+  assert.equal(needsAdoptedLabel([]), false)
+  assert.equal(needsAdoptedLabel(/** @type {any} */ (undefined)), false)
 })
 
 test('foreign PR still respects neutral:stuck — the stuck classifier wins over the foreign ladder (LLP 0025/0026)', () => {

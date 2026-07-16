@@ -14,13 +14,22 @@ export const FIX_LABEL = 'neutral:fix'      // a human delegates an issue for a 
 export const STUCK_LABEL = 'neutral:stuck'  // neutral sets this when it cannot complete one
 // Foreign-PR adoption labels (LLP 0025). `neutral:adopt` is a maintainer's authorization to
 // review+heal a PR neutral did NOT author — the maintenance counterpart to `neutral:fix` on an
-// issue (LLP 0024). `neutral:approved` / `neutral:changes-requested` are the verdicts neutral
-// SETS in place of the ready-hold/merge it uses on its own PRs: readying or merging a
-// contributor's PR is the maintainer's call (LLP 0000 §Autonomy).
+// issue (LLP 0024). `neutral:changes-requested` is the verdict neutral SETS in place of the
+// ready-hold/merge it uses on its own PRs: readying or merging a contributor's PR is the
+// maintainer's call (LLP 0000 §Autonomy). `neutral:approved` is dual-purpose: on an adopted
+// PR it is that terminal verdict, and on an OWN PR it marks the reviewed-clean terminal,
+// synced head-accurately by the skill to each decision's `approved` field (LLP 0030).
 // @ref LLP 0025#trigger-and-authorization [implements] — the adopt trigger + verdict labels
+// @ref LLP 0030 [implements] — neutral:approved also marks an own PR's reviewed-clean terminal
 export const ADOPT_LABEL = 'neutral:adopt'
 export const APPROVED_LABEL = 'neutral:approved'
 export const CHANGES_REQUESTED_LABEL = 'neutral:changes-requested'
+// `neutral:adopted` is the adoption COMPLETION record (LLP 0031): set once a PR that
+// carried `neutral:adopt` is observed MERGED — a cache of merged ∧ adopt-labelled,
+// re-derived each tick, set-if-absent. Add-only: a merged head can never move again,
+// so unlike `neutral:approved` (head-keyed, stripped on regression) it cannot go stale.
+// @ref LLP 0031 [implements] — the completion-record label
+export const ADOPTED_LABEL = 'neutral:adopted'
 // The reconcilePR review rung's fix-loop bound: past this many rounds with the head
 // still unreviewed, the PR is surfaced as stuck rather than churned forever.
 // @ref LLP 0009#pr-health-reconciler [implements] — N=2 fix rounds

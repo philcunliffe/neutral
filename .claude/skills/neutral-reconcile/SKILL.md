@@ -275,6 +275,19 @@ recomputed next tick. Distinct PRs advance in **parallel** (branch-disjoint).
 Do NOT re-derive the rung in prose. Read it from `neutral prs --json` — the `action`
 field per PR is the deterministic decision (`src/prhealth.js`). Act on it:
 
+**The `neutral:approved` label on own PRs (LLP 0030).** For every **own** (non-`foreign`)
+PR each tick, sync the `neutral:approved` label to the decision's **`approved`** field —
+**mechanical, no agent, idempotent**: read the PR's current labels first, then
+`gh pr edit N --add-label neutral:approved` iff `approved` is `true` and the label is
+absent, or `gh pr edit N --remove-label neutral:approved` iff `approved` is falsy and the
+label is present (do nothing when already in sync). `approved` is `true` only at the
+reviewed-clean terminal (`ready-hold` / `held` / `merge`), so the label is added there and
+**stripped the instant the PR regresses** (any heal/review/stuck/triage rung omits the
+field) — it tracks the current reviewed-clean head and never goes stale. This runs
+alongside the rung action below; it is **not** itself a rung and never blocks one. Foreign
+PRs keep the verdict-label mechanism (`approve` / `request-changes`) unchanged. Create the
+`neutral:approved` label in the target repo once if it does not exist (`gh label create`).
+
 **The stuck report (LLP 0026).** *Whatever* sets `neutral:stuck` on a PR — the triage
 rung, a conflict back-off, wave-loop exhaustion — must post the report comment **in
 the same act** as the label (`gh pr comment N --body …`). It is one full comment,
@@ -386,8 +399,9 @@ which replies are new.
   the predicate, not the trigger (LLP 0027). Next tick re-runs the real rung at the
   current head; `guidance` stays non-zero, so the dispatched worker gets the replies.
 - **`ready-hold`** (terminal — mergeable ∧ green ∧ reviewed, still a draft):
-  `gh pr ready <N>` and **HOLD**. Never merge; never `gh pr ready` a PR neutral does
-  not own.
+  `gh pr ready <N>`, ensure `neutral:approved` is set (the label sync above; `approved`
+  is `true` here — LLP 0030), and **HOLD**. Never merge; never `gh pr ready` a PR neutral
+  does not own.
 - **`merge`** (terminal, only when the repo opted in with `automerge: true` —
   LLP 0019): `gh pr ready <N>` if still a draft, then `gh pr merge <N> --squash`
   (squash-only-at-the-final-PR, as for a human merge). No `--delete-branch` — the
@@ -429,6 +443,13 @@ maintainer's call (LLP 0000 §Autonomy).
   to the body **last**, so a partial failure re-runs rather than skipping. A contributor push
   moves the head and re-opens the ladder; an unchanged head reads as `held` (the verdict marker
   covers it).
+- **`mark-adopted`** (a **merged** adoption missing its completion record — LLP 0031):
+  **mechanical, no agent**: `gh pr edit <N> --add-label neutral:adopted`. `neutral prs` emits
+  this for a PR that was merged while carrying `neutral:adopt` but does not yet carry
+  `neutral:adopted` — the label is the completion record, a cache of merged ∧ adopt-labelled
+  (LLP 0002), add-only because a merged head can never move again. Keep `neutral:adopt` in
+  place (the maintainer's authorization record — LLP 0031 rejects the swap). Create the
+  `neutral:adopted` label in the target repo once if it does not exist (`gh label create`).
 
 ## Fan-out worker: Issue-fix (maintenance, LLP 0009)  — worker tier (`opus`)
 
@@ -485,11 +506,13 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
 - **Never `gh pr ready`, merge, or force-heal a PR neutral does not own.** Own PRs
-  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge`; an **adopted** foreign PR
-  (`neutral:adopt`, LLP 0025) terminates in a **verdict label** (`neutral:approved` /
-  `neutral:changes-requested`) and is never readied or merged by neutral. Push a heal to a fork
-  only when `neutral prs` reports it pushable (tagged `[adopt]`, not `[adopt,review-only]`);
-  in review-only mode neutral only reviews and posts the verdict.
+  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge` and carry
+  `neutral:approved` at that reviewed-clean terminal, synced head-accurately to the decision's
+  `approved` field (LLP 0030 — added at the terminal, stripped on any regression); an
+  **adopted** foreign PR (`neutral:adopt`, LLP 0025) terminates in a **verdict label**
+  (`neutral:approved` / `neutral:changes-requested`) and is never readied or merged by neutral.
+  Push a heal to a fork only when `neutral prs` reports it pushable (tagged `[adopt]`, not
+  `[adopt,review-only]`); in review-only mode neutral only reviews and posts the verdict.
 - **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
 - **Head-SHA keying.** "Green" and "reviewed" only count for the *current* head SHA;
   re-read it each tick.

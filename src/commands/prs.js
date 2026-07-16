@@ -1,14 +1,15 @@
 // @ts-check
 // `neutral prs [--json]` — the PR-health observe surface: every in-scope open PR
 // (neutral's OWN `integration/*` change sets and `fix/issue-*` fixes) with the one
-// rung action reconcilePR should take this tick. This is the loop's eyes for the
+// rung action reconcilePR should take this tick, plus every MERGED adoption still
+// owed its `neutral:adopted` completion record (LLP 0031). This is the loop's eyes for the
 // maintenance family — the deterministic rung decision lives here, not in skill
 // prose, so it is unit-tested rather than an agent's judgement.
 // @ref LLP 0009#pr-health-reconciler [implements]
 import { run } from '../git.js'
-import { listOpenPRs, viewPR } from '../github.js'
-import { selectRung, humanRepliesAfterStuckReport } from '../prhealth.js'
-import { loadConfig, ADOPT_LABEL } from '../config.js'
+import { listOpenPRs, listMergedAdoptPRs, viewPR } from '../github.js'
+import { selectRung, humanRepliesAfterStuckReport, needsAdoptedLabel } from '../prhealth.js'
+import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL } from '../config.js'
 
 // In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS foreign PRs a
 // maintainer delegated with `neutral:adopt` (LLP 0025). The label is the authorization for the
@@ -43,6 +44,20 @@ export async function collectPRs(repo, exec = run) {
     const decision = selectRung({ ...obs, foreign }, maxReviewRounds, automerge)
     const guidance = humanRepliesAfterStuckReport(obs.comments).length
     out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, canPush: obs.canPush !== false, guidance, ...decision })
+  }
+  // Completion records (LLP 0031): a MERGED adoption has left the open-PR scope above but
+  // still owes one act — `neutral:adopted`, the cache of merged ∧ adopt-labelled. Emitted as
+  // a mechanical terminal action; set-if-absent, so the work-list self-terminates. Own heads
+  // are skipped for the same reason as at enumeration: an adopt label on an own PR is
+  // redundant — ownership wins, and an own PR is not an adoption.
+  // @ref LLP 0031 [implements] — merged ∧ adopt ∧ ¬adopted → mark-adopted
+  for (const p of await listMergedAdoptPRs(repo, exec)) {
+    if (OWN_HEAD_RE.test(p.headRefName) || !needsAdoptedLabel(p.labels)) continue
+    out.push({
+      number: p.number, head: p.headRefName, base: '', isDraft: false, headSha: '',
+      foreign: true, canPush: true, guidance: 0, rung: 'terminal', action: 'mark-adopted',
+      reason: `merged while carrying ${ADOPT_LABEL} — add ${ADOPTED_LABEL}, the adoption completion record (LLP 0031)`
+    })
   }
   return out
 }
