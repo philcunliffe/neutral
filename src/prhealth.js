@@ -410,8 +410,11 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
  */
 function foreignRung(pr, maxReviewRounds) {
   // Absent ⇒ pushable (a same-repo branch). Only a cross-repo fork with maintainer-edits off
-  // is unpushable. @ref LLP 0024#decision [constrained-by] — canPush selects the mode, not a gate
-  const canPush = pr.canPush !== false
+  // is unpushable — and a `neutral:review` delegation forces review-only regardless of push
+  // access (LLP 0032): review-only ⇔ reviewOnly ∨ ¬canPush, one clause selecting LLP 0025's
+  // existing mode. @ref LLP 0024#decision [constrained-by] — canPush selects the mode, not a gate
+  // @ref LLP 0032 [implements] — neutral:review folds into the effective canPush
+  const canPush = pr.canPush !== false && !pr.reviewOnly
 
   // A verdict already posted for this exact head → held; a contributor push moves the head and
   // re-opens it (LLP 0002). This idempotency gate keeps the loop from re-labelling a settled

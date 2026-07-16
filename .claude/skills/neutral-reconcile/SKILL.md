@@ -423,14 +423,18 @@ which replies are new.
   `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
 - **`wait`** / **`held`**: do nothing this tick.
 
-### Adopted (foreign) PRs — `neutral:adopt` (LLP 0025)
+### Adopted (foreign) PRs — `neutral:adopt` / `neutral:review` (LLP 0025/0032)
 
-A PR carrying `neutral:adopt` that neutral did **not** author is in scope by the maintainer's
-label (the authorization, exactly like `neutral:fix`; LLP 0024). `neutral prs` tags it `[adopt]`
-(or `[adopt,review-only]` when neutral cannot push to the fork) and drives the **same rung
-ladder**, with two differences: heal rungs are gated on push access, and the terminal is a
-**verdict label**, never a ready-flip or merge — readying/merging a contributor's PR is the
-maintainer's call (LLP 0000 §Autonomy).
+A PR carrying `neutral:adopt` or `neutral:review` that neutral did **not** author is in scope
+by the maintainer's label (the authorization, exactly like `neutral:fix`; LLP 0024). The two
+labels differ only in the width of the grant: **`neutral:adopt` = full heal**, **`neutral:review`
+= review-only** — review the head and post the verdict, but **never push to the branch**, even
+when push access exists (LLP 0032). `neutral prs` tags the PR `[adopt]`, `[adopt,review-only]`
+(adopt, but neutral cannot push to the fork), or `[review]` (review-only by label — when both
+labels are present the narrower `neutral:review` wins; a grant never widens implicitly), and
+drives the **same rung ladder**, with two differences: heal rungs are gated on push access, and
+the terminal is a **verdict label**, never a ready-flip or merge — readying/merging a
+contributor's PR is the maintainer's call (LLP 0000 §Autonomy).
 
 **Healing an adopted PR is the job, not an overreach.** The maintainer put `neutral:adopt`
 on the PR *precisely to delegate its care* — the label is single-key, full-heal
@@ -442,21 +446,24 @@ behaviour, exactly as for an own PR. Do not voluntarily downgrade to review-only
 substitute a comment for a fix you could push, and do not skip the PR out of caution: a
 labelled, pushable, unhealed adopted PR is a **gap the tick failed to close**. The only
 things that limit healing are the CLI's own signals — `[adopt,review-only]` (no push
-access) or the rung action itself. The autonomy boundary sits *only* at the terminal:
-ready/merge stays the maintainer's.
+access), `[review]` (the maintainer asked for review-only, LLP 0032), or the rung action
+itself. The autonomy boundary sits *only* at the terminal: ready/merge stays the
+maintainer's.
 
 - **Full-heal** (`[adopt]`, neutral can push): `merge-base` / `resolve-conflict` / `fix-ci` /
   `review` behave exactly as for an own PR — resolve/fix and **push to the fork's head branch**
   (the contributor left maintainer-edits on). At the review cap the action is **`request-changes`**,
   not `triage` (the code is the contributor's — hand residual findings back, never defer to a
   `neutral:fix` follow-up).
-- **Review-only** (`[adopt,review-only]`, a cross-repo fork with maintainer-edits off): neutral
-  cannot push, so an unmet **`request-changes`** heal rung means *the contributor* must
-  rebase / resolve / fix CI. **`review`** still runs (it needs no push): review the head, and
-  because you cannot push a fix, post the verdict **directly** — `approve` if clean, else
-  `request-changes` — recording both the marker-signed review-record comment
-  (`<!-- neutral-review: <sha> <clean|findings> -->` first line; LLP 0028/0029) and the
-  verdict marker.
+- **Review-only** (`[adopt,review-only]` — a cross-repo fork with maintainer-edits off — or
+  `[review]` — the maintainer asked for review-only with `neutral:review`, LLP 0032; both
+  behave identically): neutral must not push, so an unmet **`request-changes`** heal rung
+  means *the contributor* must rebase / resolve / fix CI. **`review`** still runs (it needs
+  no push): review the head, and because you cannot push a fix, post the verdict
+  **directly** — `approve` if clean, else `request-changes` — recording both the
+  marker-signed review-record comment (`<!-- neutral-review: <sha> <clean|findings> -->`
+  first line; LLP 0028/0029) and the verdict marker. For a `[review]` PR the no-push rule is
+  the maintainer's explicit instruction — do not "helpfully" push even though access exists.
 - **`approve`** (terminal — mergeable ∧ green ∧ reviewed): `gh pr edit <N> --add-label
   neutral:approved --remove-label neutral:changes-requested`, comment the verdict, and append
   `<!-- neutral-verdict: <the head SHA> approved -->` to the body **last** — then HOLD for the

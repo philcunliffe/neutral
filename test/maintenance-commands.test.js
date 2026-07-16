@@ -87,6 +87,25 @@ test('collectPRs review-only degrades an unpushable fork to request-changes on a
   assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[5, true, false, 'request-changes']])
 })
 
+test('collectPRs scopes a neutral:review PR as review-only, even when pushable; review wins over adopt (LLP 0032)', async () => {
+  const exec = fakeWorld({
+    prs: [
+      { number: 6, headRefName: 'contrib/one', labels: [{ name: 'neutral:review' }] },                              // review-only by label
+      { number: 7, headRefName: 'contrib/two', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:review' }] }    // both -> narrower grant wins
+    ],
+    views: {
+      // same-repo branch (canPush true) sitting BEHIND: adopt would heal (merge-base); review must not
+      6: { number: 6, headRefName: 'contrib/one', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', statusCheckRollup: [], headRefOid: 'aaa', body: '', labels: [{ name: 'neutral:review' }] },
+      7: { number: 7, headRefName: 'contrib/two', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', statusCheckRollup: [], headRefOid: 'bbb', body: '', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:review' }] }
+    }
+  })
+  const got = await collectPRs('/r', exec)
+  assert.deepEqual(got.map(p => [p.number, p.foreign, p.reviewOnly, p.canPush, p.action]), [
+    [6, true, true, true, 'request-changes'],
+    [7, true, true, true, 'request-changes']
+  ])
+})
+
 test('collectPRs owes a merged adoption its completion record exactly once (LLP 0031)', async () => {
   const exec = fakeWorld({
     mergedPrs: [

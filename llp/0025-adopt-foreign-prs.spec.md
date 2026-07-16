@@ -27,6 +27,11 @@ exactly as for `neutral:fix` issues.
 The PR-health trigger set becomes: neutral's **own** PRs (in scope by ownership, no
 label) **∪** foreign PRs labelled `neutral:adopt`.
 
+> **Extended-by [LLP 0032](0032-review-label.decision.md):** a second, narrower grant —
+> `neutral:review` — also brings a foreign PR into scope, forcing this spec's
+> review-only mode regardless of push access (neutral reviews and posts the verdict,
+> never pushes). When both labels are present the narrower grant wins.
+
 ## Push access: canPush
 
 Whether neutral can push a heal to the PR's head branch — re-derived every tick from

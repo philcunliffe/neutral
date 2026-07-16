@@ -9,7 +9,7 @@
 import { run } from '../git.js'
 import { listOpenPRs, listMergedAdoptPRs, viewPR } from '../github.js'
 import { selectRung, humanRepliesAfterStuckReport, needsAdoptedLabel } from '../prhealth.js'
-import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL } from '../config.js'
+import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL, REVIEW_LABEL } from '../config.js'
 
 // In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS foreign PRs a
 // maintainer delegated with `neutral:adopt` (LLP 0025). The label is the authorization for the
@@ -27,23 +27,27 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
  * including after the label is removed (the guidance outlives the unstick).
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>>}
+ * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>>}
  */
 export async function collectPRs(repo, exec = run) {
   const { maxReviewRounds, automerge } = loadConfig(repo)
   const open = await listOpenPRs(repo, exec)
-  // Own by head-branch ownership; foreign only when a maintainer explicitly adopted it (LLP 0025).
-  const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL))
-  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>} */
+  // Own by head-branch ownership; foreign only when a maintainer explicitly delegated it —
+  // `neutral:adopt` for full heal (LLP 0025) or `neutral:review` for review-only (LLP 0032).
+  const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL) || p.labels.includes(REVIEW_LABEL))
+  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>} */
   const out = []
   for (const p of inScope) {
     const obs = await viewPR(repo, p.number, exec)
     if (!obs) continue
-    // foreign ⇔ not an own head branch. An adopt label on an own PR is redundant — ownership wins.
+    // foreign ⇔ not an own head branch. A delegation label on an own PR is redundant — ownership wins.
     const foreign = !OWN_HEAD_RE.test(obs.head)
-    const decision = selectRung({ ...obs, foreign }, maxReviewRounds, automerge)
+    // The narrower grant wins when both labels are present (LLP 0032): review-only forces
+    // LLP 0025's no-push mode regardless of the observed push access.
+    const reviewOnly = foreign && obs.labels.includes(REVIEW_LABEL)
+    const decision = selectRung({ ...obs, foreign, reviewOnly }, maxReviewRounds, automerge)
     const guidance = humanRepliesAfterStuckReport(obs.comments).length
-    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, canPush: obs.canPush !== false, guidance, ...decision })
+    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, canPush: obs.canPush !== false, guidance, ...decision })
   }
   // Completion records (LLP 0031): a MERGED adoption has left the open-PR scope above but
   // still owes one act — `neutral:adopted`, the cache of merged ∧ adopt-labelled. Emitted as
@@ -55,7 +59,7 @@ export async function collectPRs(repo, exec = run) {
     if (OWN_HEAD_RE.test(p.headRefName) || !needsAdoptedLabel(p.labels)) continue
     out.push({
       number: p.number, head: p.headRefName, base: '', isDraft: false, headSha: '',
-      foreign: true, canPush: true, guidance: 0, rung: 'terminal', action: 'mark-adopted',
+      foreign: true, reviewOnly: false, canPush: true, guidance: 0, rung: 'terminal', action: 'mark-adopted',
       reason: `merged while carrying ${ADOPT_LABEL} — add ${ADOPTED_LABEL}, the adoption completion record (LLP 0031)`
     })
   }
@@ -76,7 +80,7 @@ export async function prsCommand(repo, args, exec = run) {
     process.stdout.write('  (no in-scope open PRs)\n')
   } else {
     for (const p of prs) {
-      const tag = p.foreign ? `  [adopt${p.canPush ? '' : ',review-only'}]` : ''
+      const tag = p.foreign ? (p.reviewOnly ? '  [review]' : `  [adopt${p.canPush ? '' : ',review-only'}]`) : ''
       const guidance = p.guidance ? ` guidance=${p.guidance}` : ''
       process.stdout.write(`  #${p.number}  ${p.head}${tag}  rung=${p.rung} action=${p.action}${guidance} — ${p.reason}\n`)
     }

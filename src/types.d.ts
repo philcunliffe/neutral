@@ -136,8 +136,10 @@ export interface PrObservation {
   labels: string[]
   /** Whether neutral can push a heal to the head branch (LLP 0025): `!isCrossRepository || maintainerCanModify`. Own PRs are always pushable; a cross-repo fork only while the contributor allows maintainer edits. Absent ⇒ pushable. */
   canPush?: boolean
-  /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` label (LLP 0025). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
+  /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` or `neutral:review` label (LLP 0025/0032). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
   foreign?: boolean
+  /** True when the PR carries `neutral:review` (LLP 0032): the narrower, review-only delegation. Forces LLP 0025's review-only mode regardless of push access — neutral reviews and posts the verdict but never pushes. Wins over `neutral:adopt` when both are present (a grant never widens implicitly). */
+  reviewOnly?: boolean
   /** The comment thread, chronological — carries the marker-signed review records (LLP 0028), the stuck report, and the human replies that unstick a held PR (LLP 0026/0027). */
   comments: PrComment[]
 }

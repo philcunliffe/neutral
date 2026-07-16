@@ -22,6 +22,12 @@ export const STUCK_LABEL = 'neutral:stuck'  // neutral sets this when it cannot 
 // @ref LLP 0025#trigger-and-authorization [implements] — the adopt trigger + verdict labels
 // @ref LLP 0030 [implements] — neutral:approved also marks an own PR's reviewed-clean terminal
 export const ADOPT_LABEL = 'neutral:adopt'
+// `neutral:review` is the NARROWER grant (LLP 0032): review-only delegation. Same
+// trigger mechanics as `neutral:adopt`, but neutral never pushes to the branch — it
+// forces LLP 0025's review-only mode regardless of push access. When both labels are
+// present the narrower grant wins: a delegation must never widen implicitly.
+// @ref LLP 0032 [implements] — the review-only delegation label
+export const REVIEW_LABEL = 'neutral:review'
 export const APPROVED_LABEL = 'neutral:approved'
 export const CHANGES_REQUESTED_LABEL = 'neutral:changes-requested'
 // `neutral:adopted` is the adoption COMPLETION record (LLP 0031): set once a PR that

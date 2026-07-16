@@ -294,6 +294,23 @@ test('verdict markers: parse SHAs, match head; a verdict holds until the contrib
   assert.equal(selectRung(fpr({ canPush: false, headSha: 'cafe123', mergeStateStatus: 'BEHIND', body })).action, 'request-changes')
 })
 
+test('neutral:review forces review-only even when neutral CAN push (LLP 0032)', () => {
+  const rv = (over = {}) => fpr({ canPush: true, reviewOnly: true, ...over })
+  // heal rungs degrade to request-changes despite push access — the label is the instruction
+  assert.equal(selectRung(rv({ mergeStateStatus: 'BEHIND' })).action, 'request-changes')
+  assert.equal(selectRung(rv({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).action, 'request-changes')
+  assert.equal(selectRung(rv({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).action, 'request-changes')
+  // pending still waits; review still runs (it needs no push)
+  assert.equal(selectRung(rv({ rollup: [{ status: 'IN_PROGRESS' }] })).action, 'wait')
+  assert.equal(selectRung(rv({ headSha: 'abc1234' })).action, 'review')
+  // the review cap never converts to request-changes in review-only (no fix loop ran)
+  const twoRounds = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
+  assert.equal(selectRung(rv({ headSha: 'beef999', body: twoRounds })).action, 'review')
+  // clean at head -> approve terminal, same as any foreign PR
+  const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
+  assert.deepEqual(pick(selectRung(rv({ headSha: 'abc1234', comments: clean }))), { rung: 'terminal', action: 'approve' })
+})
+
 test('needsAdoptedLabel: a merged adoption owes the completion record exactly once (LLP 0031)', () => {
   // adopt without adopted -> owes the record
   assert.equal(needsAdoptedLabel(['neutral:adopt']), true)
