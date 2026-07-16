@@ -11,6 +11,17 @@ reconciler family, **fans out all branch-disjoint gaps in parallel**, **fans in*
 serial verified merges, re-derives "done" from git/GitHub, and returns. Re-running
 is always safe — state is derived, not stored. Driven by `/loop /neutral-reconcile`.
 
+**This loop is autonomous — there is no user at the terminal.** Never call
+`AskUserQuestion`, never end a tick on a question, never wait for in-terminal
+confirmation — the loop may run unattended for days, and a terminal question wedges
+it while every other gap sits idle. Questions have exactly **one** channel: the
+artifact's own thread. Label the PR/issue `neutral:stuck` and put the concrete
+question in the marker-signed **stuck report** (LLP 0026); the human answers by
+replying on the thread, and the unstick predicate (LLP 0027) feeds the reply back in
+on a later tick. This applies to every worker you dispatch too — pass it down: a
+worker that needs a human decision returns "stick it with this question", it does
+not ask.
+
 The goal is **neutral state** (LLP 0008): every gap neutral can close *autonomously*
 is closed — no uncovered request LLP, no `neutral:fix` issue without a fix attempt,
 no in-scope PR left unmergeable / failing / unreviewed. Neutral stops at the
@@ -421,6 +432,19 @@ ladder**, with two differences: heal rungs are gated on push access, and the ter
 **verdict label**, never a ready-flip or merge — readying/merging a contributor's PR is the
 maintainer's call (LLP 0000 §Autonomy).
 
+**Healing an adopted PR is the job, not an overreach.** The maintainer put `neutral:adopt`
+on the PR *precisely to delegate its care* — the label is single-key, full-heal
+authorization (LLP 0024); there is no additional consent to seek and no reason to hold
+back because the code is a contributor's. When `neutral prs` reports the PR pushable
+(`[adopt]`), fixing it — merge-basing, resolving conflicts, repairing CI, fixing review
+findings — and **pushing those commits to the contributor's branch** is the expected
+behaviour, exactly as for an own PR. Do not voluntarily downgrade to review-only, do not
+substitute a comment for a fix you could push, and do not skip the PR out of caution: a
+labelled, pushable, unhealed adopted PR is a **gap the tick failed to close**. The only
+things that limit healing are the CLI's own signals — `[adopt,review-only]` (no push
+access) or the rung action itself. The autonomy boundary sits *only* at the terminal:
+ready/merge stays the maintainer's.
+
 - **Full-heal** (`[adopt]`, neutral can push): `merge-base` / `resolve-conflict` / `fix-ci` /
   `review` behave exactly as for an own PR — resolve/fix and **push to the fork's head branch**
   (the contributor left maintainer-edits on). At the review cap the action is **`request-changes`**,
@@ -499,20 +523,27 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
 - **One `/loop` session per repo.** Parallelism is *intra-tick* via sub-agents;
   exactly one orchestrator touches the repo (LLP 0010). Two reconcilers racing the
   same repo is unsafe — nothing in git prevents it, so don't.
+- **No user at the terminal — ever.** Never `AskUserQuestion`, never end a tick
+  waiting on in-terminal input. Every question for a human goes through
+  `neutral:stuck` + the marker-signed stuck report on the artifact's thread
+  (LLP 0026/0027), where it blocks only that one artifact instead of the loop.
 - **Never merge — unless the CLI's rung says `merge`.** Merging is the one
   irreversible act, a human's by default; drive to held + green + reviewed and
   stop. The single exception is the repo opting in via `automerge: true`
   (LLP 0019), and even then only the `neutral prs` action decides — never merge
   on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
-- **Never `gh pr ready`, merge, or force-heal a PR neutral does not own.** Own PRs
-  (`integration/*`, `fix/issue-*`) terminate in `ready-hold`/`merge` and carry
-  `neutral:approved` at that reviewed-clean terminal, synced head-accurately to the decision's
-  `approved` field (LLP 0030 — added at the terminal, stripped on any regression); an
-  **adopted** foreign PR (`neutral:adopt`, LLP 0025) terminates in a **verdict label**
-  (`neutral:approved` / `neutral:changes-requested`) and is never readied or merged by neutral.
-  Push a heal to a fork only when `neutral prs` reports it pushable (tagged `[adopt]`, not
-  `[adopt,review-only]`); in review-only mode neutral only reviews and posts the verdict.
+- **Never `gh pr ready` or merge a PR neutral does not own — and never touch an
+  unlabelled foreign PR.** Own PRs (`integration/*`, `fix/issue-*`) terminate in
+  `ready-hold`/`merge` and carry `neutral:approved` at that reviewed-clean terminal, synced
+  head-accurately to the decision's `approved` field (LLP 0030 — added at the terminal,
+  stripped on any regression); an **adopted** foreign PR (`neutral:adopt`, LLP 0025)
+  terminates in a **verdict label** (`neutral:approved` / `neutral:changes-requested`) and is
+  never readied or merged by neutral. This boundary is about *ready/merge and unlabelled
+  PRs* — it is **not** a reason to avoid healing: pushing fixes to a labelled adopted PR that
+  `neutral prs` reports pushable (tagged `[adopt]`, not `[adopt,review-only]`) is the
+  expected full-heal mode (LLP 0024), and skipping it leaves a gap open. In review-only
+  mode neutral only reviews and posts the verdict.
 - **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
 - **Head-SHA keying.** "Green" and "reviewed" only count for the *current* head SHA;
   re-read it each tick.
