@@ -1,7 +1,7 @@
 // @ts-check
 // Git ground-truth helpers — the ONLY core module that shells out. Completion is
 // read from the commit graph, which a status field cannot fake.
-// @ref LLP 0002#how-to-apply [implements] — merged? = verified ancestor
+// @ref LLP 0002#how-to-apply [implements] — merged? = verified ancestor (refined by LLP 0033: off the first-parent chain)
 import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { parseLlp } from './llp.js'
@@ -81,11 +81,49 @@ export async function resolveRef(repo, name, exec = run) {
 }
 
 /**
+ * The commit sha a ref points at, or null when it does not resolve.
+ * @param {string} repo
+ * @param {string} ref
+ * @param {typeof run} [exec]
+ * @returns {Promise<string | null>}
+ */
+export async function commitSha(repo, ref, exec = run) {
+  try {
+    const out = await exec('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repo)
+    return out.trim() || null
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 1) return null
+    throw err
+  }
+}
+
+/**
+ * The set of commit shas on a ref's first-parent chain (`git rev-list
+ * --first-parent`) — the integration branch's own spine, as opposed to the
+ * task tips merged into it.
+ * @param {string} repo
+ * @param {string} ref
+ * @param {typeof run} [exec]
+ * @returns {Promise<Set<string>>}
+ */
+export async function firstParentChain(repo, ref, exec = run) {
+  const out = await exec('git', ['rev-list', '--first-parent', ref], repo)
+  return new Set(out.split('\n').map(s => s.trim()).filter(Boolean))
+}
+
+/**
  * Derive the done-set for a change set's tasks from git ground truth: a task is
- * done iff its branch is a verified ancestor of the integration branch. Refs are
- * resolved against `origin/*` first (where the implementer pushes). A missing
- * integration branch means "nothing done yet"; a missing task branch means "that
- * task is not done" — neither is an error.
+ * done iff its branch tip is a verified ancestor of the integration branch AND
+ * that tip is off the integration branch's first-parent chain. Ancestry alone is
+ * not enough: a branch created at the integration head with no work commits is
+ * trivially an ancestor, and one production run shipped a change set minus a
+ * task that way. The serial merger integrates with `--no-ff`, so a genuinely
+ * merged tip is only ever a merge commit's second parent — strictly off the
+ * chain — while an empty branch sits on it. Refs are resolved against
+ * `origin/*` first (where the implementer pushes). A missing integration branch
+ * means "nothing done yet"; a missing task branch means "that task is not
+ * done" — neither is an error.
+ * @ref LLP 0033#off-first-parent [implements] — done = ancestor with work parentage
  * @param {string} repo
  * @param {string} integration
  * @param {Task[]} tasks
@@ -97,10 +135,14 @@ export async function doneSetFromGit(repo, integration, tasks, exec = run) {
   const done = new Set()
   const integ = await resolveRef(repo, integration, exec)
   if (!integ) return done
+  const spine = await firstParentChain(repo, integ, exec)
   for (const t of tasks) {
     const br = await resolveRef(repo, t.branch, exec)
     if (!br) continue
-    if (await isAncestor(repo, br, integ, exec)) done.add(t.id)
+    if (!(await isAncestor(repo, br, integ, exec))) continue
+    const tip = await commitSha(repo, br, exec)
+    if (!tip || spine.has(tip)) continue
+    done.add(t.id)
   }
   return done
 }

@@ -37,7 +37,11 @@ reviewed* and waits.
 observer's verdict re-read fresh is authoritative; the acting agent's prose is only
 a *hint to verify*:
 
-- **Merged?** `git merge-base --is-ancestor <branch> <integration>` — a verified ancestor.
+- **Merged?** `git merge-base --is-ancestor <branch> <integration>` — a verified
+  ancestor whose tip is **off the integration first-parent chain** (LLP 0033): an
+  empty branch created at the integration head is a trivial ancestor with zero work
+  and must NOT read as done. `neutral ready` applies both checks; trust it over a
+  hand-run `--is-ancestor`.
 - **Covered?** a real `@ref LLP NNNN` in a design (or code), not a "designed" flag.
 - **Mergeable? / Green?** GitHub's *own* computation, read against the **current head
   SHA** (`gh pr view --json mergeable,statusCheckRollup`). A green check from a prior

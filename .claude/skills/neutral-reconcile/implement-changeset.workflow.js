@@ -76,18 +76,23 @@ const DERIVE_READY = `In the repo at ${repo}, read the task queue from a throwaw
 
 Return EXACTLY the parsed JSON it prints — the fields ready, blocked, done, each an array of task objects {id, branch, deps, brief, complexity}. Preserve \`complexity\` verbatim if the CLI emits it (it seeds the model tier, LLP 0022); omit it when absent — never invent a rating. Do not invent or filter tasks; the CLI is ground truth. If the CLI errors (e.g. prints "no plan LLP" to stderr instead of JSON), return ready/blocked/done all empty — the workflow treats an all-empty first read as a hard failure, never as "complete".`
 
+// The task branch must not exist — locally or on origin — until it carries a work
+// commit: the done-derivation reads an empty branch at the integration head as a
+// trivial ancestor, and one production change set shipped minus a task that way.
+// So the worker runs DETACHED and only mints the branch ref at push time.
+// @ref LLP 0033#branch-birth [implements] — a branch's existence implies work
 function implPrompt(t) {
   return `Implement ONE task of change set "${slug}" in the neutral repo at ${repo}. Isolate your work in your OWN git worktree — never edit the main checkout.
 
 1. \`cd ${repo} && git fetch --prune\`.
-2. Create a private worktree + branch (idempotent):
+2. Create a private DETACHED worktree (idempotent). NEVER create the branch ${t.branch} with worktree add / switch / branch — the branch ref may not exist until it has a work commit (an empty branch at the integration head falsely derives as done):
    - \`WT=$(mktemp -d)\`
-   - If \`git rev-parse --verify origin/${t.branch}\` succeeds (work already started), resume it: \`git worktree add "$WT" -B ${t.branch} origin/${t.branch}\`.
-   - Otherwise start fresh off the integration branch: \`git worktree add "$WT" -b ${t.branch} origin/${integration}\`.
-   - \`cd "$WT"\` — do ALL work here.
+   - If \`git rev-parse --verify origin/${t.branch}\` succeeds (work already started), resume from it: \`git worktree add --detach "$WT" origin/${t.branch}\`.
+   - Otherwise start fresh off the integration branch: \`git worktree add --detach "$WT" origin/${integration}\`.
+   - \`cd "$WT"\` — do ALL work here, on the detached HEAD.
 3. Read the change set's plan LLP (\`llp/*-${slug}.plan.md\`) for task ${t.id}, plus the design + request LLPs. Implement EXACTLY task ${t.id}: ${t.brief ? t.brief : '(see the plan)'}. Follow the repo's own conventions (AGENTS.md / CLAUDE.md / CONTRIBUTING if present).
 4. Run the repo's checks before committing — DISCOVER them (package.json \`scripts\` such as test/typecheck/lint/build, a Makefile, or the conventions file). Install deps first if this fresh worktree needs them (e.g. \`npm install\`). Run at least the test suite, plus typecheck/lint/build if the repo defines them; ALL must pass. If the repo has no automated tests, say so explicitly in notes.
-5. \`git add -A && git commit\` (message ending with a \`Task-Id: ${t.id}\` trailer). \`git push -u origin ${t.branch}\`.
+5. \`git add -A && git commit\` (message ending with a \`Task-Id: ${t.id}\` trailer). Publish the branch only now that it carries the work commit: \`git push origin HEAD:refs/heads/${t.branch}\`.
 6. Ensure a PR into ${integration}: \`gh pr list --head ${t.branch}\` (reuse) else \`gh pr create --base ${integration} --head ${t.branch} --title "${t.id}: <summary>" --body "Implements task ${t.id} of ${slug}.\\n\\nTask-Id: ${t.id}"\`.
 7. Clean up: \`cd ${repo} && git worktree remove --force "$WT"\`.
 
@@ -102,7 +107,7 @@ function mergePrompt(built) {
 Setup: \`cd ${repo} && git fetch --prune && git worktree prune\`, then \`WT=$(mktemp -d) && git worktree add --detach "$WT" origin/${integration} && cd "$WT"\`. Detached HEAD starts at the integration tip; you build the merge commits on it and push them to ${integration} at the end — the main checkout is never touched.
 
 For EACH task branch:
-1. \`git merge --no-ff --no-edit origin/<task-branch>\`  (NOT squash — parentage must survive so --is-ancestor stays true).
+1. \`git merge --no-ff --no-edit origin/<task-branch>\`  (NOT squash, NEVER fast-forward — the done-derivation requires the task tip to survive as a merge commit's second parent, off the integration first-parent chain; LLP 0033).
 2. Verify the merge ACTUALLY landed, three ways. If ANY fails, \`git merge --abort\` (or reset), record it under "failed", and skip it — do not push it:
    a. exists: \`git cat-file -t HEAD\` is \`commit\`.
    b. ancestor: \`git merge-base --is-ancestor origin/<task-branch> HEAD\` exits 0.

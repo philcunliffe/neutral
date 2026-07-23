@@ -6,15 +6,17 @@ import { observe } from '../src/state.js'
 
 /**
  * A fake `git`/`gh` runner. `ancestors[a]` lists refs that `a` is an ancestor of;
- * `exist` lists refs that resolve; `tree[ref]` is its `ls-tree` listing; `content[ref:path]`
+ * `exist` lists refs that resolve; `shas[ref]` is the sha a resolving ref points at
+ * (default 'deadbeef'); `firstParent[ref]` is its `rev-list --first-parent` sha list
+ * (absent => empty chain); `tree[ref]` is its `ls-tree` listing; `content[ref:path]`
  * is its `git show` body (absent => exit 128, which showFile maps to null); `grep[ref]`
  * is its `git grep` output (absent => exit 1, mirroring git grep's no-match exit);
  * `defaultBranch` is what `gh repo view` reports.
  * Mirrors real exit codes: merge-base/rev-parse exit 1 on the negative case.
- * @param {{ancestors?: Record<string,string[]>, exist?: string[], tree?: Record<string,string[]>, content?: Record<string,string>, grep?: Record<string,string>, defaultBranch?: string}} cfg
+ * @param {{ancestors?: Record<string,string[]>, exist?: string[], shas?: Record<string,string>, firstParent?: Record<string,string[]>, tree?: Record<string,string[]>, content?: Record<string,string>, grep?: Record<string,string>, defaultBranch?: string}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeGit({ ancestors = {}, exist = [], tree = {}, content = {}, grep = {}, defaultBranch }) {
+function fakeGit({ ancestors = {}, exist = [], shas = {}, firstParent = {}, tree = {}, content = {}, grep = {}, defaultBranch }) {
   return async (cmd, args) => {
     if (cmd === 'gh') {
       if (defaultBranch !== undefined) return defaultBranch + '\n'
@@ -22,8 +24,11 @@ function fakeGit({ ancestors = {}, exist = [], tree = {}, content = {}, grep = {
     }
     if (args[0] === 'rev-parse' && args[1] === '--verify') {
       const ref = args[args.length - 1].replace('^{commit}', '')
-      if (exist.includes(ref)) return 'deadbeef\n'
+      if (exist.includes(ref)) return (shas[ref] || 'deadbeef') + '\n'
       const e = new Error('missing'); /** @type {any} */ (e).code = 1; throw e
+    }
+    if (args[0] === 'rev-list' && args[1] === '--first-parent') {
+      return (firstParent[args[2]] || []).join('\n') + '\n'
     }
     if (args[0] === 'merge-base') {
       const a = args[2], b = args[3]
@@ -75,6 +80,26 @@ test('doneSetFromGit derives done from verified ancestry, not a status field', a
   const exec = fakeGit({ exist: ['integration', 'b1', 'b3'], ancestors: { b1: ['integration'], b3: ['integration'] } })
   const done = await doneSetFromGit('/r', 'integration', tasks, exec)
   assert.deepEqual([...done].sort(), ['T1', 'T3'])
+})
+
+test('doneSetFromGit: an empty branch on the first-parent chain is NOT done (LLP 0033)', async () => {
+  // The T11 incident: a worker's first act created the task branch AT the
+  // integration head, zero work commits — a trivial ancestor. A --no-ff-merged
+  // tip lives off the first-parent chain; the empty branch sits on it.
+  /** @type {import('../src/types.d.ts').Task[]} */
+  const tasks = [
+    { id: 'T1', branch: 'b1', deps: [] },   // genuinely merged: tip fff, off the chain
+    { id: 'T2', branch: 'b2', deps: [] },   // empty branch at the integration head (aaa)
+    { id: 'T3', branch: 'b3', deps: [] }    // stale branch parked at an older integration commit (bbb)
+  ]
+  const exec = fakeGit({
+    exist: ['integration', 'b1', 'b2', 'b3'],
+    ancestors: { b1: ['integration'], b2: ['integration'], b3: ['integration'] },
+    shas: { integration: 'aaa', b1: 'fff', b2: 'aaa', b3: 'bbb' },
+    firstParent: { integration: ['aaa', 'bbb', 'base'] }
+  })
+  const done = await doneSetFromGit('/r', 'integration', tasks, exec)
+  assert.deepEqual([...done], ['T1'])
 })
 
 test('doneSetFromGit returns empty when the integration branch does not exist yet', async () => {
