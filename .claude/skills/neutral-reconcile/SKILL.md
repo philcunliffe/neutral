@@ -131,13 +131,17 @@ tick's log lines (R2 — nothing may follow this destructive act):
   `tick: family=autophagy action=recycle detail=context=<N> threshold=<T>`, then
   **respawn the pane** — the tick's last act:
   ```sh
-  tmux respawn-pane -k "claude --model 'claude-opus-4-8[1m]' '/loop /neutral-reconcile'"
+  tmux respawn-pane -k "claude --model 'claude-opus-5[1m]' --dangerously-skip-permissions '/loop /neutral-reconcile'"
   ```
-  **Pin the model** to the 1M-context Opus 4.8 (the worker tier, matching `neutral
+  **Pin the model** to the 1M-context Opus 5 (the worker tier, matching `neutral
   start` — LLP 0020): an unpinned respawn silently reverts the fresh orchestrator to
   the machine's session default, which may be a different tier or a 200K window too
   small for the autophagy threshold T (LLP 0013). Single-quote the `[1m]` token so `sh`
-  doesn't glob the brackets. No `-t`: tmux defaults to the **current pane**
+  doesn't glob the brackets. **Keep `--dangerously-skip-permissions`**: the loop is
+  autonomous with nobody at the terminal, and a respawned session in default
+  permission mode wedges forever on the skill-consent dialog before its first tick
+  (observed in production: both headless loops froze ~18h at "Use skill
+  neutral-reconcile?" after their first autophagy recycle). No `-t`: tmux defaults to the **current pane**
   (`$TMUX_PANE`), so the respawn targets the very pane the loop runs in — independent of
   the per-repo session name (LLP 0014).
   `respawn-pane -k` atomically kills this session and starts a fresh `/loop` in the
@@ -168,7 +172,7 @@ dispatch a worker below, pass the tier's model as the sub-agent's `model`:
   tool has no per-call `effort` override**, so the Designer/Impl-designer/triage inherit
   the **session** effort — run the orchestrator loop at `high` if you want them capped
   there too.
-- **Worker tier — `opus` (Opus 4.8).** Bounded work behind a hard gate: **conflict
+- **Worker tier — `opus` (Opus 5).** Bounded work behind a hard gate: **conflict
   resolution**, **issue-fix**, the Claude half of **review**, and the **orchestrator
   itself** (pinned at launch — LLP 0020; the tick is mechanical, the CLI decides every
   rung).
@@ -240,7 +244,7 @@ content edit — immutability holds) so the merged change set reads as shipped (
    Encode real code dependencies in `deps`. **Rate each task's `complexity` 1–5**
    (LLP 0022) — your judgement, made here with the whole design in view, seeds the
    first implementation attempt's model tier: **1–3** a mechanical task (Sonnet),
-   **4** needs the worker tier (Opus 4.8), **5** needs judgement (Fable). Rate for
+   **4** needs the worker tier (Opus 5), **5** needs judgement (Fable). Rate for
    the *hardest* part of the task; be honest, not generous — the rating only seeds
    the entry rung and a verified failure still escalates (LLP 0021), so under-rating
    costs one climbing attempt, over-rating overpays. Omit `complexity` only when you

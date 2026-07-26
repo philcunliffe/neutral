@@ -29,7 +29,7 @@ git config --global user.name  "${GIT_AUTHOR_NAME:-neutral-loop}"
 git config --global user.email "${GIT_AUTHOR_EMAIL:-neutral-loop@localhost}"
 gh auth setup-git
 
-MODEL="${NEUTRAL_MODEL:-claude-opus-4-8[1m]}"
+MODEL="${NEUTRAL_MODEL:-claude-opus-5[1m]}"
 CLAUDE_ARGS="${NEUTRAL_CLAUDE_ARGS:---dangerously-skip-permissions}"
 # Model single-quoted so sh doesn't glob the [1m] brackets (see LOOP_SHELL_COMMAND).
 LOOP_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop /neutral-reconcile'"
@@ -96,11 +96,22 @@ if [ "$HYPAWARE" = "1" ]; then
       hyp join "$HYP_REMOTE_URL" --token-file /tmp/hyp-join-token --no-daemon
       rm -f /tmp/hyp-join-token
     fi
+  elif [ -f "$HOME/.hyp/hypaware/config-control/state.json" ]; then
+    log "hypaware: already joined a fleet (enrollment persisted in ~/.hyp volume) — central sync active"
   else
     log "hypaware: no HYP_REMOTE_URL/HYP_REMOTE_TOKEN — capturing locally only, no central sync"
   fi
 
   tmux new-session -d -s hyp-daemon 'hyp daemon run --foreground'
+
+  # A recreated container has a fresh filesystem layer: ~/.hyp (volume) still
+  # holds a done attach marker, but the claude settings that marker points at
+  # died with the old layer — and the daemon then never re-attaches. Standalone
+  # attach reads the daemon's live port and is idempotent, so always run it.
+  for _ in $(seq 1 30); do
+    hyp attach claude >/dev/null 2>&1 && break
+    sleep 2
+  done
 
   if port=$(wait_gateway); then
     log "hypaware: gateway up on 127.0.0.1:$port"

@@ -69,7 +69,7 @@ ARG NEUTRAL_REPOS=""
 ENV NEUTRAL_REPOS=$NEUTRAL_REPOS
 
 # Overridable knobs (defaults mirror src/commands/start.js).
-ENV NEUTRAL_MODEL="claude-opus-4-8[1m]"
+ENV NEUTRAL_MODEL="claude-opus-5[1m]"
 ENV NEUTRAL_CLAUDE_ARGS="--dangerously-skip-permissions"
 
 # HypAware capture. On by default (local cache only); central sync activates

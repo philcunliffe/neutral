@@ -7,8 +7,8 @@ test('tmuxStartArgv: idempotent attach-or-create, detached when nested', () => {
   assert.deepEqual(tmuxStartArgv({ session: 'neutral-x' }), ['new-session', '-A', '-s', 'neutral-x', LOOP_SHELL_COMMAND])
   assert.deepEqual(tmuxStartArgv({ session: 'neutral-x', nested: true }), ['new-session', '-d', '-A', '-s', 'neutral-x', LOOP_SHELL_COMMAND])
   // the loop command runs via sh -c, with the orchestrator pinned to the 1M-context
-  // Opus 4.8 (LLP 0020); the model token is single-quoted so sh doesn't glob `[1m]`
-  assert.equal(LOOP_SHELL_COMMAND, "claude --model 'claude-opus-4-8[1m]' '/loop /neutral-reconcile'")
+  // Opus 5 (LLP 0020); the model token is single-quoted so sh doesn't glob `[1m]`
+  assert.equal(LOOP_SHELL_COMMAND, "claude --model 'claude-opus-5[1m]' --dangerously-skip-permissions '/loop /neutral-reconcile'")
 })
 
 test('sessionName: per-repo `neutral-<folder>`, sanitized, with a bare fallback (LLP 0014)', () => {
