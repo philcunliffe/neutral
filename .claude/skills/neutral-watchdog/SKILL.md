@@ -1,6 +1,6 @@
 ---
 name: neutral-watchdog
-description: One watchdog tick for the neutral-loop container — health-check every reconcile-loop tmux session against transcript ground truth, and heal wedged loops (clear stray input, nudge the live session, or respawn it). Runs as the third loop, `/loop 55m /neutral-watchdog`, inside the container (LLP 0034). Use only there — it assumes the container's shared tmux server and /work layout.
+description: One watchdog tick for the neutral-loop container — health-check every reconcile-loop tmux session against transcript ground truth, and heal wedged loops (nudge the live session, or respawn it). Runs as the third loop, `/loop 55m /neutral-watchdog`, inside the container (LLP 0034). Use only there — it assumes the container's shared tmux server and /work layout.
 allowed-tools: Bash, Read
 ---
 
@@ -48,9 +48,13 @@ transcripts `~/.claude/projects/-work-<name>/*.jsonl`.
      be transcript-quiet while agents run. Treat as healthy-busy; do not nudge
      mid-work. If it is still stale *and* the pane is unchanged next tick, treat
      as wedged.
-   - **Stray typed-but-unsent text** in the input box: clear it with
-     `tmux send-keys -t <session> C-u`. **Never press Enter on text you did not
-     type** — it may say anything, including `stop the loop`.
+   - **Prefill text in the input box** (after `❯`): the harness renders
+     suggested next messages there (e.g. `stop the loop`, `keep going`) — it is
+     NOT human input and NOT a wedge sign. Leave it alone; **never press Enter
+     on text you did not type** — that submits the suggestion as a real
+     message. When you nudge (below), clear the input line first with
+     `tmux send-keys -t <session> C-u` so your message does not concatenate
+     with the prefill.
    - **Interactive dialog/menu** (trust prompt, theme picker, permission ask,
      folder-sync menu): do not guess an answer — this is a respawn case.
    - **Idle prompt after an error** (e.g. `API Error` with an empty input box):

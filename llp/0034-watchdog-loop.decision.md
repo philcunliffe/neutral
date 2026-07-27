@@ -26,8 +26,9 @@ in its own tmux session — and once an hour health-checks every reconcile-loop
 session and heals what is wedged. (55 minutes, not 1 h: `/loop` offers an
 interactive cloud-schedule menu for intervals ≥60 min, which wedges a headless
 session at the menu — discovered on first deploy.) It is an **LLM loop, not a shell check**,
-because recovery is judgment: reading what died mid-flight, clearing
-typed-but-unsent pane text safely, wording a resume nudge, and deciding when
+because recovery is judgment: reading what died mid-flight, recognizing that
+input-line text is a harness prefill (a rendered suggestion, not human
+input) and never submitting it, wording a resume nudge, and deciding when
 150k+ tokens of accumulated context are worth preserving versus discarding.
 
 <a id="wedge-predicate"></a>**The wedge predicate is ground truth (LLP 0002),
@@ -39,8 +40,8 @@ mtime is explicitly not the signal — in the incident the transcript mtime read
 16:07 while the last event inside it was 03:20.
 
 <a id="recovery-ladder"></a>**Recovery prefers the gentlest act that works:**
-clear stray input → nudge the live session with a resume message (preserves
-context and mid-flight work) → kill and respawn fresh (always safe — state is
+nudge the live session with a resume message (preserves context and
+mid-flight work) → kill and respawn fresh (always safe — state is
 derived from git, LLP 0002). A session missing entirely is respawned.
 
 <a id="mutual-coverage"></a>**The supervisor heals the watchdog; the watchdog
@@ -54,11 +55,11 @@ is no self-reference hole: a dead watchdog is caught by the supervisor within
 
 <a id="shell-check-rejected"></a>**A staleness check inside the supervisor
 loop, rejected.** A script can detect a stale transcript but can only kill
-blindly. Every soft wedge (a recoverable API error, a stray keystroke in the
-prompt, an interactive dialog) would cost the session's full context, and a
-script pressing Enter on typed-but-unsent text it cannot read is exactly the
-class of blind act that once would have sent `stop the loop` to a healthy
-loop.
+blindly. Every soft wedge (a recoverable API error, an interactive dialog) would cost
+the session's full context, and a script pressing Enter on input-line text
+it cannot read is exactly the class of blind act that would submit a harness
+prefill — the input line renders suggestions like `stop the loop` — to a
+healthy loop.
 
 <a id="host-cron-rejected"></a>**A cron/agent on the host, rejected.** It
 breaks the container as the self-contained deploy unit — recovery would
