@@ -504,6 +504,13 @@ access), `[review]` (the maintainer asked for review-only, LLP 0032), or the run
 itself. The autonomy boundary sits *only* at the terminal: ready/merge stays the
 maintainer's.
 
+- **Engagement stamp (LLP 0037) — before anything else:** every open PR row with
+  `markAdopted: true` gets `gh pr edit <N> --add-label neutral:adopted` — mechanical,
+  no agent, set-if-absent, alongside whatever rung action the PR gets this tick (even
+  `wait`/`held`). The label acknowledges that neutral has taken the delegation on;
+  it is applied at first observation, not at merge. Keep `neutral:adopt` in place
+  (the maintainer's authorization record). Create the `neutral:adopted` label in the
+  target repo once if it does not exist (`gh label create`).
 - **Full-heal** (`[adopt]`, neutral can push): `merge-base` / `resolve-conflict` / `fix-ci` /
   `review` behave exactly as for an own PR — resolve/fix and **push to the fork's head branch**
   (the contributor left maintainer-edits on). At the review cap the action is **`request-changes`**,
@@ -528,13 +535,12 @@ maintainer's.
   to the body **last**, so a partial failure re-runs rather than skipping. A contributor push
   moves the head and re-opens the ladder; an unchanged head reads as `held` (the verdict marker
   covers it).
-- **`mark-adopted`** (a **merged** adoption missing its completion record — LLP 0031):
-  **mechanical, no agent**: `gh pr edit <N> --add-label neutral:adopted`. `neutral prs` emits
-  this for a PR that was merged while carrying `neutral:adopt` but does not yet carry
-  `neutral:adopted` — the label is the completion record, a cache of merged ∧ adopt-labelled
-  (LLP 0002), add-only because a merged head can never move again. Keep `neutral:adopt` in
-  place (the maintainer's authorization record — LLP 0031 rejects the swap). Create the
-  `neutral:adopted` label in the target repo once if it does not exist (`gh label create`).
+- **`mark-adopted`** (the **backstop** — LLP 0031, retimed by LLP 0037): a PR that was
+  **merged** while carrying `neutral:adopt` but never got its `neutral:adopted` stamp
+  (neutral never saw it open). **Mechanical, no agent**:
+  `gh pr edit <N> --add-label neutral:adopted`. With the engagement stamp above this
+  almost never fires. Add-only, set-if-absent; keep `neutral:adopt` in place
+  (LLP 0031 rejects the swap).
 
 ## Fan-out worker: Issue-fix (maintenance, LLP 0009)  — worker tier (`opus`)
 

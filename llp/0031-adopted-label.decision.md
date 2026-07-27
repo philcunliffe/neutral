@@ -6,6 +6,9 @@
 **Author:** Phil / Claude
 **Date:** 2026-07-16
 **Related:** 0002, 0009, 0024, 0025, 0030
+**Superseded-by:** [LLP 0037](0037-adopted-at-engagement.decision.md) — the label is
+now applied at **first engagement** (open, in-scope, adopt-labelled), not at merge;
+the merged sweep below survives as the backstop for delegations neutral never saw open.
 
 ## Context
 

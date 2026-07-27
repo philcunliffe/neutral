@@ -30,11 +30,12 @@ export const ADOPT_LABEL = 'neutral:adopt'
 export const REVIEW_LABEL = 'neutral:review'
 export const APPROVED_LABEL = 'neutral:approved'
 export const CHANGES_REQUESTED_LABEL = 'neutral:changes-requested'
-// `neutral:adopted` is the adoption COMPLETION record (LLP 0031): set once a PR that
-// carried `neutral:adopt` is observed MERGED — a cache of merged ∧ adopt-labelled,
-// re-derived each tick, set-if-absent. Add-only: a merged head can never move again,
-// so unlike `neutral:approved` (head-keyed, stripped on regression) it cannot go stale.
-// @ref LLP 0031 [implements] — the completion-record label
+// `neutral:adopted` is the adoption ENGAGEMENT record (LLP 0037, retiming LLP 0031):
+// stamped set-if-absent on the first tick that observes an open adopt-labelled PR —
+// the acknowledgment that neutral has taken the delegation on — with LLP 0031's
+// merged sweep kept as backstop. Add-only: engagement cannot un-happen, so unlike
+// `neutral:approved` (head-keyed, stripped on regression) it cannot go stale.
+// @ref LLP 0037#engagement [implements] — the engagement-record label
 export const ADOPTED_LABEL = 'neutral:adopted'
 // The reconcilePR review rung's fix-loop bound: past this many rounds with the head
 // still unreviewed, the PR is surfaced as stuck rather than churned forever.

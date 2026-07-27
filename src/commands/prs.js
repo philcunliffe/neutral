@@ -28,9 +28,12 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-|autophagy\/)/
  * replies after the latest stuck report in the thread (LLP 0027) — non-zero means
  * every worker dispatched for this PR must be given the report + replies as context,
  * including after the label is removed (the guidance outlives the unstick).
+ * `markAdopted` (LLP 0037) flags an open adopted PR still missing `neutral:adopted`:
+ * the skill stamps the label set-if-absent alongside the rung action — engagement,
+ * not completion, is what the label records.
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>>}
+ * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string}>>}
  */
 export async function collectPRs(repo, exec = run) {
   const { maxReviewRounds, automerge } = loadConfig(repo)
@@ -38,7 +41,7 @@ export async function collectPRs(repo, exec = run) {
   // Own by head-branch ownership; foreign only when a maintainer explicitly delegated it —
   // `neutral:adopt` for full heal (LLP 0025) or `neutral:review` for review-only (LLP 0032).
   const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL) || p.labels.includes(REVIEW_LABEL))
-  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, rung: string, action: string, reason: string}>} */
+  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, canPush: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string}>} */
   const out = []
   for (const p of inScope) {
     const obs = await viewPR(repo, p.number, exec)
@@ -54,19 +57,24 @@ export async function collectPRs(repo, exec = run) {
     const merge = automerge && !obs.head.startsWith(AUTOPHAGY_PREFIX)
     const decision = selectRung({ ...obs, foreign, reviewOnly }, maxReviewRounds, merge)
     const guidance = humanRepliesAfterStuckReport(obs.comments).length
-    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, canPush: obs.canPush !== false, guidance, ...decision })
+    // Engagement stamp (LLP 0037): observing an adopt-labelled PR IS taking it on, so
+    // the first tick that classifies it owes it `neutral:adopted`, set-if-absent.
+    // Review-only delegations are narrower and are not adoptions (LLP 0032).
+    // @ref LLP 0037#engagement [implements]
+    const markAdopted = foreign && needsAdoptedLabel(obs.labels)
+    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, canPush: obs.canPush !== false, guidance, markAdopted, ...decision })
   }
-  // Completion records (LLP 0031): a MERGED adoption has left the open-PR scope above but
-  // still owes one act — `neutral:adopted`, the cache of merged ∧ adopt-labelled. Emitted as
-  // a mechanical terminal action; set-if-absent, so the work-list self-terminates. Own heads
-  // are skipped for the same reason as at enumeration: an adopt label on an own PR is
-  // redundant — ownership wins, and an own PR is not an adoption.
-  // @ref LLP 0031 [implements] — merged ∧ adopt ∧ ¬adopted → mark-adopted
+  // Backstop sweep (LLP 0031, retimed by LLP 0037): a MERGED adoption neutral never saw
+  // open still owes its `neutral:adopted` record. With engagement-time stamping above this
+  // almost never fires. Emitted as a mechanical terminal action; set-if-absent, so the
+  // work-list self-terminates. Own heads are skipped for the same reason as at
+  // enumeration: an adopt label on an own PR is redundant — ownership wins.
+  // @ref LLP 0037#backstop [implements] — merged ∧ adopt ∧ ¬adopted → mark-adopted
   for (const p of await listMergedAdoptPRs(repo, exec)) {
     if (OWN_HEAD_RE.test(p.headRefName) || !needsAdoptedLabel(p.labels)) continue
     out.push({
       number: p.number, head: p.headRefName, base: '', isDraft: false, headSha: '',
-      foreign: true, reviewOnly: false, canPush: true, guidance: 0, rung: 'terminal', action: 'mark-adopted',
+      foreign: true, reviewOnly: false, canPush: true, guidance: 0, markAdopted: true, rung: 'terminal', action: 'mark-adopted',
       reason: `merged while carrying ${ADOPT_LABEL} — add ${ADOPTED_LABEL}, the adoption completion record (LLP 0031)`
     })
   }

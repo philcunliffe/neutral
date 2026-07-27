@@ -106,6 +106,30 @@ test('collectPRs scopes a neutral:review PR as review-only, even when pushable; 
   ])
 })
 
+test('collectPRs stamps engagement: an open adopted PR without neutral:adopted flags markAdopted (LLP 0037)', async () => {
+  const exec = fakeWorld({
+    prs: [
+      { number: 1, headRefName: 'integration/own' },                                                                  // own -> never stamped
+      { number: 4, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] },                               // engaged -> stamp
+      { number: 6, headRefName: 'contrib/done', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:adopted' }] },   // already stamped -> silent
+      { number: 8, headRefName: 'contrib/ro', labels: [{ name: 'neutral:review' }] }                                  // review-only, not an adoption
+    ],
+    views: {
+      1: { number: 1, headRefName: 'integration/own', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', statusCheckRollup: [], headRefOid: 'aaa', body: '' },
+      4: { number: 4, headRefName: 'contrib/patch', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'bbb', body: '', labels: [{ name: 'neutral:adopt' }], isCrossRepository: true, maintainerCanModify: true },
+      6: { number: 6, headRefName: 'contrib/done', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'ccc', body: '', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:adopted' }], isCrossRepository: true, maintainerCanModify: true },
+      8: { number: 8, headRefName: 'contrib/ro', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'ddd', body: '', labels: [{ name: 'neutral:review' }] }
+    }
+  })
+  const got = await collectPRs('/r', exec)
+  assert.deepEqual(got.map(p => [p.number, p.markAdopted]), [
+    [1, false],
+    [4, true],
+    [6, false],
+    [8, false]
+  ])
+})
+
 test('collectPRs owes a merged adoption its completion record exactly once (LLP 0031)', async () => {
   const exec = fakeWorld({
     mergedPrs: [
