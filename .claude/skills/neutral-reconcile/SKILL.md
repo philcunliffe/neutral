@@ -91,11 +91,17 @@ work, the tick verifies it.
    hint; the re-derivation is the conclusion.
 5. **Emit one log line per gap acted on:**
    `tick: family=<pipeline|maintenance> target=<slug|pr#N|issue#N> action=<…> detail=<…>`.
-6. **End of tick — recycle or schedule (LLP 0013).** Run `neutral idle --json`. If
-   `recycle` is `false`, **return** and let the loop schedule the next tick
-   (`ScheduleWakeup`). If `recycle` is `true` (idle ∧ context > T), perform the
-   **context-autophagy respawn** (below) **instead of** scheduling — it is the tick's
-   last act.
+6. **End of tick — the idle-initiative selection (LLP 0035).** Run
+   `neutral idle --json` and act on its `initiative` field — the CLI selects, you
+   act, you do not re-decide the priority:
+   - `initiative: "recycle"` (idle ∧ context > T, LLP 0013) — perform the
+     **context-autophagy respawn** (below) **instead of** scheduling. It is the
+     tick's last act; runtime hygiene preempts repo hygiene.
+   - `initiative: "cleanup"` (idle, recycle not due, member eligible, LLP 0036) —
+     run the **code-cleanup initiative** (below), then **return** and let the loop
+     schedule the next tick.
+   - `initiative: null` — **return**; the loop schedules the next tick
+     (`ScheduleWakeup`).
 
 ### Disjointness — the fan-out lock (LLP 0010)
 
@@ -155,6 +161,46 @@ tick's log lines (R2 — nothing may follow this destructive act):
 
 A respawn resets the transcript to baseline, so autophagy **self-rate-limits** (R5):
 it cannot fire again until context regrows past T (tens of idle ticks).
+
+### Code cleanup — dead-code trim & tidy on idle (LLP 0036)
+
+The first **repo-hygiene** autophagy member: on an idle tick with slack
+(`initiative: "cleanup"`), propose a cleanup PR a human disposes of. All three
+family rules bind (LLP 0011): **slack-only**, **held never merged**, **propose
+never assert**. Eligibility is already decided by the CLI — the member is on
+(`autophagy.codeCleanup`) and **no `autophagy/` PR is open** (one at a time; a
+held-unreviewed cleanup PR blocks the next until the human disposes of it).
+
+Dispatch **one** worker in its **own worktree** off the target branch, on branch
+`autophagy/cleanup-<yyyy-mm-dd>` (UTC date), with this brief:
+
+- **Trim only what is mechanically dead.** A construct (export, function, file)
+  qualifies only when grep over the whole tree proves it unreachable: **no
+  importer, no test reference, no `@ref` annotation** attached to it, **not** a
+  package entry point (`package.json` `main`/`exports`/`bin`), a CLI surface, or
+  documented public API — and no dynamic-dispatch / reflection / string-keyed
+  reachability in sight. Run the searches; do not judge from memory.
+- **Mechanical tidy is also in scope:** unused imports, unreachable statements
+  after a return/throw, leftover commented-out blocks. **Never style churn** —
+  no reformatting, renames, refactors, or "improvements".
+- **When in doubt, it is not dead.** Anything short of mechanical confidence
+  stays. Finding **nothing** is a valid outcome: open no PR, report the no-op.
+- **Evidence in the PR body.** List every trim with the reachability searches
+  that came back empty — the PR proposes; the human review disposes.
+- **Repo checks must pass** in the worktree before the PR opens (e.g. `npm test`
+  + typecheck); CI on the PR is the authority that they do.
+- Open the PR as a **draft**. It rides the own-PR ladder to *mergeable ∧ green ∧
+  reviewed* and is **held even in an `automerge: true` repo** — the CLI already
+  exempts `autophagy/` heads from the automerge terminal (LLP 0036).
+
+Then fan in as usual: verify from `gh` that the PR exists (or that the worker
+reported a no-op), emit `tick: family=autophagy action=cleanup detail=pr#<N>` (or
+`action=cleanup-noop`), and return — the loop schedules the next tick. Once the
+PR is open the next ticks are **not idle** until it settles to `held`, so
+autophagy work serializes through the same gate as everything else (LLP 0035).
+After a no-op you MAY skip re-running cleanup on later idle ticks *within this
+session* while the target head hasn't moved — a scheduling hint, not a fact
+claim; a fresh session simply re-scans once.
 
 ## Model tiering — the verifier picks the model (LLP 0020–0022)
 
@@ -585,5 +631,6 @@ neutral implementable --json  # pipeline: any Accepted design merged to target, 
 neutral prs --json            # maintenance: each in-scope PR's next rung action
 neutral issues --json         # maintenance: each neutral:fix issue's state
 # then fan out the branch-disjoint workers above and re-derive from git.
-neutral idle --json        # end of tick: idle ∧ context>T ? recycle the pane (LLP 0013)
+neutral idle --json        # end of tick: act on `initiative` — recycle the pane (LLP 0013),
+                           # run the code-cleanup initiative (LLP 0036), or schedule (LLP 0035)
 ```

@@ -50,6 +50,7 @@ test('collectIdle: idle ∧ ctx > T ⇒ recycle', async () => {
     const s = await collectIdle(repo, exec, () => 600_000) // default T = 500k
     assert.equal(s.idle, true)
     assert.equal(s.recycle, true)
+    assert.equal(s.initiative, 'recycle') // runtime preempts repo hygiene (LLP 0035)
     assert.equal(s.contextSize, 600_000)
     assert.deepEqual(s.blockers, [])
   } finally {
@@ -64,6 +65,7 @@ test('collectIdle: idle but ctx ≤ T ⇒ no recycle (slack, but context still s
     const s = await collectIdle(repo, exec, () => 100_000)
     assert.equal(s.idle, true)
     assert.equal(s.recycle, false)
+    assert.equal(s.initiative, 'cleanup') // slack + no open autophagy PR (LLP 0036)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }
@@ -92,6 +94,7 @@ test('collectIdle: an in-flight PR (action != held) blocks idle even with huge c
     const s = await collectIdle(repo, exec, () => 900_000)
     assert.equal(s.idle, false)
     assert.equal(s.recycle, false)
+    assert.equal(s.initiative, null) // not idle ⇒ no initiative at all (LLP 0035)
     assert.deepEqual(s.blockers, [{ family: 'maintenance', target: 'pr#1', reason: 'action=merge-base' }])
   } finally {
     rmSync(repo, { recursive: true, force: true })
@@ -106,6 +109,51 @@ test('collectIdle: a needs-fix issue blocks idle', async () => {
     assert.equal(s.idle, false)
     assert.equal(s.recycle, false)
     assert.deepEqual(s.blockers, [{ family: 'maintenance', target: 'issue#9', reason: 'needs-fix — no fix attempt yet' }])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectIdle: a held autophagy PR keeps the tick idle but blocks the next cleanup (LLP 0036)', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    const exec = fakeWorld({
+      prs: [{ number: 5, headRefName: 'autophagy/cleanup-2026-07-27' }],
+      views: { 5: heldView(5, 'autophagy/cleanup-2026-07-27') }
+    })
+    const s = await collectIdle(repo, exec, () => 100_000)
+    assert.equal(s.idle, true)            // held is at rest — the human must dispose
+    assert.equal(s.cleanup.eligible, false) // …but one autophagy PR at a time
+    assert.equal(s.initiative, null)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectIdle: an in-flight autophagy PR blocks idle like any own PR', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    const exec = fakeWorld({
+      prs: [{ number: 5, headRefName: 'autophagy/cleanup-2026-07-27' }],
+      views: { 5: { ...heldView(5, 'autophagy/cleanup-2026-07-27'), mergeStateStatus: 'BEHIND' } }
+    })
+    const s = await collectIdle(repo, exec, () => 100_000)
+    assert.equal(s.idle, false)
+    assert.equal(s.initiative, null)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectIdle: autophagy.codeCleanup=false leaves an idle tick with no initiative', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ autophagy: { codeCleanup: false } }))
+    const s = await collectIdle(repo, fakeWorld(), () => 100_000)
+    assert.equal(s.idle, true)
+    assert.equal(s.cleanup.eligible, false)
+    assert.equal(s.initiative, null)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

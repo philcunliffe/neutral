@@ -1,6 +1,7 @@
 // @ts-check
 // `neutral prs [--json]` — the PR-health observe surface: every in-scope open PR
-// (neutral's OWN `integration/*` change sets and `fix/issue-*` fixes) with the one
+// (neutral's OWN `integration/*` change sets, `fix/issue-*` fixes and `autophagy/*`
+// cleanup proposals) with the one
 // rung action reconcilePR should take this tick, plus every MERGED adoption still
 // owed its `neutral:adopted` completion record (LLP 0031). This is the loop's eyes for the
 // maintenance family — the deterministic rung decision lives here, not in skill
@@ -10,6 +11,7 @@ import { run } from '../git.js'
 import { listOpenPRs, listMergedAdoptPRs, viewPR } from '../github.js'
 import { selectRung, humanRepliesAfterStuckReport, needsAdoptedLabel } from '../prhealth.js'
 import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL, REVIEW_LABEL } from '../config.js'
+import { AUTOPHAGY_PREFIX } from '../autophagy.js'
 
 // In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS foreign PRs a
 // maintainer delegated with `neutral:adopt` (LLP 0025). The label is the authorization for the
@@ -17,7 +19,8 @@ import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL, REVIEW_LABEL } from '../config.
 // the same rung ladder, degraded by push access and terminating in a verdict label.
 // @ref LLP 0025#trigger-and-authorization [implements] — in scope = own ∪ adopt
 // @ref LLP 0008#scope [constrained-by] — adopted PRs are a separate axis from the change-set DAG
-const OWN_HEAD_RE = /^(integration\/|fix\/issue-)/
+// @ref LLP 0036#initiative [implements] — autophagy/ cleanup PRs ride the own-PR ladder
+const OWN_HEAD_RE = /^(integration\/|fix\/issue-|autophagy\/)/
 
 /**
  * Observe every in-scope open PR and classify its rung. gh failures degrade to an
@@ -45,7 +48,11 @@ export async function collectPRs(repo, exec = run) {
     // The narrower grant wins when both labels are present (LLP 0032): review-only forces
     // LLP 0025's no-push mode regardless of the observed push access.
     const reviewOnly = foreign && obs.labels.includes(REVIEW_LABEL)
-    const decision = selectRung({ ...obs, foreign, reviewOnly }, maxReviewRounds, automerge)
+    // The automerge opt-in (LLP 0019) never applies to a scavenger's proposal: an
+    // autophagy cleanup PR is held for a human even in an automerge repo.
+    // @ref LLP 0036#no-automerge [implements]
+    const merge = automerge && !obs.head.startsWith(AUTOPHAGY_PREFIX)
+    const decision = selectRung({ ...obs, foreign, reviewOnly }, maxReviewRounds, merge)
     const guidance = humanRepliesAfterStuckReport(obs.comments).length
     out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, canPush: obs.canPush !== false, guidance, ...decision })
   }

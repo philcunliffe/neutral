@@ -69,6 +69,24 @@ test('loadConfig accepts a boolean automerge, else keeps the default (off)', () 
   }
 })
 
+test('loadConfig accepts a boolean autophagy.codeCleanup, else keeps the default (on)', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
+  try {
+    assert.equal(DEFAULT_CONFIG.autophagy.codeCleanup, true) // held-PR boundary is the safety (LLP 0036)
+    mkdirSync(join(repo, '.neutral'))
+    /** @param {unknown} v */
+    const write = (v) => writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ autophagy: v }))
+    write({ codeCleanup: false })
+    assert.equal(loadConfig(repo).autophagy.codeCleanup, false)
+    write({ codeCleanup: 'false' })                                   // not a boolean -> default
+    assert.equal(loadConfig(repo).autophagy.codeCleanup, true)
+    write('off')                                                      // not an object -> default
+    assert.equal(loadConfig(repo).autophagy.codeCleanup, true)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('a config can remap `plan` out of the design role', () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
   try {

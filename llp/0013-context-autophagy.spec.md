@@ -141,7 +141,8 @@ deterministic core; the core gains only the **idle predicate** and the
 ## Out of scope
 
 - **Repo-hygiene members** (dead-code trim, LLP repair, branch prune, dependency
-  hygiene) — deferred to their own specs (LLP 0011 roadmap). Their *held-never-merged*
+  hygiene) — deferred to their own specs (LLP 0011 roadmap; first landed:
+  code cleanup, LLP 0036, selected per LLP 0035). Their *held-never-merged*
   and *propose-never-assert* rules, and the "one initiative per idle period" cap, are
   theirs, not this spec's.
 - **Basal (always-on) sweeping** — context autophagy is idle-induced only (LLP 0011).

@@ -165,6 +165,36 @@ test('collectPRs honours the maxReviewRounds config knob', async () => {
   }
 })
 
+test('collectPRs scopes an autophagy/ head as own, but exempts it from automerge (LLP 0036)', async () => {
+  // Two reviewed-clean terminal PRs in an automerge repo: the integration PR merges
+  // (LLP 0019); the autophagy cleanup proposal stays held for a human.
+  /** @param {number} number @param {string} head */
+  const view = (number, head) => ({
+    number, headRefName: head, baseRefName: 'main', isDraft: false,
+    mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [],
+    headRefOid: 'abc1234', body: '<!-- neutral-review: abc1234 -->'
+  })
+  const exec = fakeWorld({
+    prs: [
+      { number: 1, headRefName: 'integration/auth' },
+      { number: 2, headRefName: 'autophagy/cleanup-2026-07-27' }
+    ],
+    views: { 1: view(1, 'integration/auth'), 2: view(2, 'autophagy/cleanup-2026-07-27') }
+  })
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-prs-'))
+  try {
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ automerge: true }))
+    const got = await collectPRs(repo, exec)
+    assert.deepEqual(got.map(p => [p.number, p.foreign, p.action]), [
+      [1, false, 'merge'],
+      [2, false, 'held']
+    ])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('collectIssues classifies each neutral:fix issue from ground truth', async () => {
   const exec = fakeWorld({
     issues: [

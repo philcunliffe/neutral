@@ -83,7 +83,14 @@ export const DEFAULT_CONFIG = {
   // @ref LLP 0019 [implements] — automerge relaxes the hold, never the gates
   automerge: false,
   // Context-autophagy trigger threshold T, in tokens (LLP 0013). Per-repo tunable.
-  contextRecycleThreshold: DEFAULT_CONTEXT_THRESHOLD
+  contextRecycleThreshold: DEFAULT_CONTEXT_THRESHOLD,
+  // Repo-hygiene autophagy members (LLP 0036). On by default — output is a held PR
+  // a human disposes of, so the never-merge boundary is the safety; a repo that
+  // wants no unprompted cleanup PRs switches the member off here.
+  // @ref LLP 0036#eligibility [implements] — the per-repo off-switch
+  autophagy: {
+    codeCleanup: true
+  }
 }
 
 /**
@@ -112,7 +119,12 @@ function merge(base, over) {
     automerge: typeof o.automerge === 'boolean' ? o.automerge : base.automerge,
     contextRecycleThreshold: Number.isInteger(o.contextRecycleThreshold) && o.contextRecycleThreshold > 0
       ? o.contextRecycleThreshold
-      : base.contextRecycleThreshold
+      : base.contextRecycleThreshold,
+    autophagy: {
+      codeCleanup: typeof (o.autophagy && o.autophagy.codeCleanup) === 'boolean'
+        ? o.autophagy.codeCleanup
+        : base.autophagy.codeCleanup
+    }
   }
 }
 

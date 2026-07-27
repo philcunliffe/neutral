@@ -76,6 +76,11 @@ export interface NeutralConfig {
   automerge: boolean
   /** Context-autophagy trigger threshold T, in tokens (LLP 0013). */
   contextRecycleThreshold: number
+  /** Repo-hygiene autophagy switches (LLP 0036); future members add theirs here. */
+  autophagy: {
+    /** The code-cleanup idle initiative (LLP 0036). Default on; the held-PR boundary is the safety. */
+    codeCleanup: boolean
+  }
 }
 
 export interface World {
@@ -197,6 +202,15 @@ export interface IdleBlocker {
 export interface IdleState {
   idle: boolean
   blockers: IdleBlocker[]
+}
+
+/**
+ * Whether the code-cleanup initiative may run this idle tick (LLP 0036): the repo
+ * switch is on and no `autophagy/` PR is open. Pure over the prs observe output.
+ */
+export interface CleanupState {
+  eligible: boolean
+  reason: string
 }
 
 /** A `neutral:fix` issue's fix-attempt state, re-derived from ground truth (LLP 0009). */

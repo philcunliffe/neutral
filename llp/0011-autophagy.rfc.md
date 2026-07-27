@@ -186,7 +186,7 @@ context autophagy (v1)**. Each repo-hygiene member below is deferred to its own 
 | Member | Flavour | Ground-truth signal |
 | --- | --- | --- |
 | **context** (v1) | runtime | observed context size > T |
-| dead-code trim | repo | construct with no import / test / `@ref` reachability |
+| dead-code trim — spec'd as *code cleanup*, [LLP 0036](0036-code-cleanup-autophagy.spec.md) | repo | construct with no import / test / `@ref` reachability |
 | LLP repair | repo | broken `Related:` / `@ref` (cf. `ref-check`), missing metadata, un-tombstoned superseded docs |
 | coverage backfill | repo | code realizing a documented decision with no `@ref` (LLP 0003) |
 | branch prune | repo | merged `integration/*` / `fix/*` not yet deleted (LLP 0010 §Handoff) |
@@ -201,7 +201,8 @@ context autophagy (v1)**. Each repo-hygiene member below is deferred to its own 
   (LLP 0010 unchanged). Precondition: the loop runs inside a tmux pane.
 - **Never competes.** Autophagy consumes only idle capacity; any real gap pre-empts it
   next tick. Throughput of the reconcilers is untouched.
-- **Bounded / anti-churn.** At most **one autophagy initiative per idle period**; it
+- **Bounded / anti-churn.** At most **one autophagy initiative per idle period**
+  (selection order settled in [LLP 0035](0035-idle-initiative-selection.decision.md)); it
   backs off if its own held PRs are piling up unreviewed (don't open 40 dead-code PRs
   the human must triage). Repo hygiene obeys the branch-disjointness lock (LLP 0010).
 - **Ground truth, still.** Autophagy proposes; the human disposes (held PRs), and
