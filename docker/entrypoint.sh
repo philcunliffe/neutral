@@ -168,7 +168,9 @@ done
 # heals the loops (judgment) — neither watches itself.
 WATCHDOG="${NEUTRAL_WATCHDOG:-1}"
 WATCHDOG_SESSION="neutral-watchdog"
-WATCHDOG_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop 1h /neutral-watchdog'"
+# 55m, not 1h: /loop offers an interactive "cloud schedule?" menu for
+# intervals ≥60 min, which wedges a headless session at the menu.
+WATCHDOG_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop 55m /neutral-watchdog'"
 if [ "$WATCHDOG" = "1" ]; then
   # The watchdog runs in /work (not a repo clone) — pre-trust it and pre-classify
   # it for hypaware sync, same as the repo dirs, so nothing interactive wedges it.

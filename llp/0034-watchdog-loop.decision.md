@@ -21,9 +21,11 @@ that layer. Nothing watches for wedges.
 ## Decision
 
 <a id="third-loop"></a>**A third loop, `neutral-watchdog`, runs in the same
-container** — `claude --model claude-opus-5[1m] '/loop 1h /neutral-watchdog'`
+container** — `claude --model claude-opus-5[1m] '/loop 55m /neutral-watchdog'`
 in its own tmux session — and once an hour health-checks every reconcile-loop
-session and heals what is wedged. It is an **LLM loop, not a shell check**,
+session and heals what is wedged. (55 minutes, not 1 h: `/loop` offers an
+interactive cloud-schedule menu for intervals ≥60 min, which wedges a headless
+session at the menu — discovered on first deploy.) It is an **LLM loop, not a shell check**,
 because recovery is judgment: reading what died mid-flight, clearing
 typed-but-unsent pane text safely, wording a resume nudge, and deciding when
 150k+ tokens of accumulated context are worth preserving versus discarding.

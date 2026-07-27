@@ -1,6 +1,6 @@
 ---
 name: neutral-watchdog
-description: One watchdog tick for the neutral-loop container — health-check every reconcile-loop tmux session against transcript ground truth, and heal wedged loops (clear stray input, nudge the live session, or respawn it). Runs as the third loop, `/loop 1h /neutral-watchdog`, inside the container (LLP 0034). Use only there — it assumes the container's shared tmux server and /work layout.
+description: One watchdog tick for the neutral-loop container — health-check every reconcile-loop tmux session against transcript ground truth, and heal wedged loops (clear stray input, nudge the live session, or respawn it). Runs as the third loop, `/loop 55m /neutral-watchdog`, inside the container (LLP 0034). Use only there — it assumes the container's shared tmux server and /work layout.
 allowed-tools: Bash, Read
 ---
 
@@ -9,7 +9,7 @@ allowed-tools: Bash, Read
 One **tick** of the watchdog (LLP 0034). Enumerate the reconcile-loop sessions on
 this container's tmux server, decide per session — from ground truth, never
 self-report (LLP 0002) — whether it is healthy, working, or wedged, heal what is
-wedged, emit one log line per session, and return. `/loop 1h` drives the cadence.
+wedged, emit one log line per session, and return. `/loop 55m` drives the cadence (55m, not 1h: intervals ≥60 min trigger /loop's interactive cloud-schedule menu, which wedges a headless session).
 
 **This loop is autonomous — never ask a question in the terminal**, never wait for
 confirmation. Every decision below is yours to make from observed state.
@@ -106,7 +106,7 @@ healthy this tick and your own context has grown past ~300k tokens, recycle
 instead — the tick's last act, targeting your own pane (no `-t`, LLP 0014):
 
 ```bash
-tmux respawn-pane -k "claude --model 'claude-opus-5[1m]' --dangerously-skip-permissions '/loop 1h /neutral-watchdog'"
+tmux respawn-pane -k "claude --model 'claude-opus-5[1m]' --dangerously-skip-permissions '/loop 55m /neutral-watchdog'"
 ```
 
 The model is pinned explicitly — an unpinned respawn would silently revert the
