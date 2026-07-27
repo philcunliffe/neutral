@@ -52,7 +52,8 @@ USER neutral
 # target repo (same shape as a ~/.claude/skills symlink on a dev machine).
 RUN mkdir -p /home/neutral/.claude/skills \
   && ln -s /opt/neutral/.claude/skills/neutral-reconcile /home/neutral/.claude/skills/neutral-reconcile \
-  && ln -s /opt/neutral/.claude/skills/neutral-init /home/neutral/.claude/skills/neutral-init
+  && ln -s /opt/neutral/.claude/skills/neutral-init /home/neutral/.claude/skills/neutral-init \
+  && ln -s /opt/neutral/.claude/skills/neutral-watchdog /home/neutral/.claude/skills/neutral-watchdog
 
 # Pre-seed Claude Code's user config so a headless first run never stops at
 # interactive onboarding (theme picker / bypass-permissions confirmation).
@@ -71,6 +72,11 @@ ENV NEUTRAL_REPOS=$NEUTRAL_REPOS
 # Overridable knobs (defaults mirror src/commands/start.js).
 ENV NEUTRAL_MODEL="claude-opus-5[1m]"
 ENV NEUTRAL_CLAUDE_ARGS="--dangerously-skip-permissions"
+
+# Watchdog: a third LLM loop that hourly heals wedged reconcile loops
+# (LLP 0034). Set NEUTRAL_WATCHDOG=0 to disable and restore the old
+# exit-when-all-loops-die behavior.
+ENV NEUTRAL_WATCHDOG="1"
 
 # HypAware capture. On by default (local cache only); central sync activates
 # when both HYP_REMOTE_URL and HYP_REMOTE_TOKEN are set at run time. Forwarded

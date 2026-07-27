@@ -58,8 +58,8 @@ wait_gateway() {
   return 1
 }
 
-spawn_loop() { # $1 = repo dir, $2 = session name
-  tmux new-session -d -s "$2" -c "$1" "$LOOP_CMD"
+spawn_loop() { # $1 = working dir, $2 = session name, $3 = loop command
+  tmux new-session -d -s "$2" -c "$1" "$3"
 }
 
 # --- hypaware capture (optional, on by default) --------------------------------
@@ -124,6 +124,7 @@ fi
 
 SESSIONS=()
 DIRS=()
+CMDS=()
 for repo in $(printf '%s' "$NEUTRAL_REPOS" | tr ',' ' '); do
   name=$(basename "$repo")
   dir="/work/$name"
@@ -150,13 +151,43 @@ for repo in $(printf '%s' "$NEUTRAL_REPOS" | tr ',' ' '); do
   session="neutral-$(sanitize "$name")"
   SESSIONS+=("$session")
   DIRS+=("$dir")
+  CMDS+=("$LOOP_CMD")
   if tmux has-session -t "=$session" 2>/dev/null; then
     log "session $session already running"
   else
     log "starting loop for $repo in tmux session $session"
-    spawn_loop "$dir" "$session"
+    spawn_loop "$dir" "$session" "$LOOP_CMD"
   fi
 done
+
+# --- watchdog (LLP 0034) ------------------------------------------------------
+# A live-but-silent claude session is invisible to the supervisor below (it only
+# sees dead sessions). The watchdog is a third LLM loop that hourly reads each
+# loop's transcript ground truth and nudges or respawns wedged loops. Division
+# of labor: the supervisor heals the watchdog (deterministic), the watchdog
+# heals the loops (judgment) — neither watches itself.
+WATCHDOG="${NEUTRAL_WATCHDOG:-1}"
+WATCHDOG_SESSION="neutral-watchdog"
+WATCHDOG_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop 1h /neutral-watchdog'"
+if [ "$WATCHDOG" = "1" ]; then
+  # The watchdog runs in /work (not a repo clone) — pre-trust it and pre-classify
+  # it for hypaware sync, same as the repo dirs, so nothing interactive wedges it.
+  jq '.projects["/work"] = ((.projects["/work"] // {}) + {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true})' \
+     ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
+  if [ "$HYPAWARE" = "1" ]; then
+    hyp ignore --sync /work >/dev/null || log "WARNING: could not pre-classify /work for sync"
+  fi
+
+  SESSIONS+=("$WATCHDOG_SESSION")
+  DIRS+=(/work)
+  CMDS+=("$WATCHDOG_CMD")
+  if tmux has-session -t "=$WATCHDOG_SESSION" 2>/dev/null; then
+    log "session $WATCHDOG_SESSION already running"
+  else
+    log "starting watchdog in tmux session $WATCHDOG_SESSION"
+    spawn_loop /work "$WATCHDOG_SESSION" "$WATCHDOG_CMD"
+  fi
+fi
 
 log "${#SESSIONS[@]} loop(s) running: ${SESSIONS[*]}"
 log "watch one with: docker exec -it <container> tmux attach -t <session>"
@@ -179,12 +210,20 @@ while :; do
       for i in "${!SESSIONS[@]}"; do
         if tmux has-session -t "=${SESSIONS[$i]}" 2>/dev/null; then
           tmux kill-session -t "=${SESSIONS[$i]}"
-          spawn_loop "${DIRS[$i]}" "${SESSIONS[$i]}"
+          spawn_loop "${DIRS[$i]}" "${SESSIONS[$i]}" "${CMDS[$i]}"
         fi
       done
     else
       log "WARNING: hypaware gateway still down after daemon restart"
     fi
+  fi
+
+  # The watchdog heals the loops; the supervisor heals the watchdog (LLP 0034).
+  # Respawn before the aliveness count so a dead watchdog never reads as a
+  # dead loop below.
+  if [ "$WATCHDOG" = "1" ] && ! tmux has-session -t "=$WATCHDOG_SESSION" 2>/dev/null; then
+    log "WARNING: watchdog session exited — respawning"
+    spawn_loop /work "$WATCHDOG_SESSION" "$WATCHDOG_CMD"
   fi
 
   alive=0
@@ -193,6 +232,9 @@ while :; do
       alive=$((alive + 1))
     fi
   done
+  # With the watchdog enabled this never fires (it was respawned just above and
+  # counts as alive; dead repo loops are its job to resurrect) — teardown is
+  # `docker stop`. With NEUTRAL_WATCHDOG=0 the old behavior stands.
   if [ "$alive" -eq 0 ]; then
     log "all loop sessions have exited — stopping container"
     exit 0
