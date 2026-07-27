@@ -75,8 +75,10 @@ ENV NEUTRAL_CLAUDE_ARGS="--dangerously-skip-permissions"
 
 # Watchdog: a third LLM loop that hourly heals wedged reconcile loops
 # (LLP 0034). Set NEUTRAL_WATCHDOG=0 to disable and restore the old
-# exit-when-all-loops-die behavior.
+# exit-when-all-loops-die behavior. NEUTRAL_WATCHDOG_MODEL overrides the
+# watchdog's model independently of the loops (empty = NEUTRAL_MODEL).
 ENV NEUTRAL_WATCHDOG="1"
+ENV NEUTRAL_WATCHDOG_MODEL=""
 
 # HypAware capture. On by default (local cache only); central sync activates
 # when both HYP_REMOTE_URL and HYP_REMOTE_TOKEN are set at run time. Forwarded

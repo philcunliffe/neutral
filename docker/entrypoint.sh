@@ -31,8 +31,16 @@ gh auth setup-git
 
 MODEL="${NEUTRAL_MODEL:-claude-opus-5[1m]}"
 CLAUDE_ARGS="${NEUTRAL_CLAUDE_ARGS:---dangerously-skip-permissions}"
+
+# Every claude session in this container is unattended. This harness-level
+# system prompt suppresses interactive offers (e.g. /loop's cloud-schedule
+# menu at >=60m intervals) that would wedge a headless pane. Exported so the
+# skills' tmux respawn commands can reuse it; no apostrophes — it is embedded
+# single-quoted in the session commands below.
+export NEUTRAL_HEADLESS_PROMPT="Headless autonomous session: no human is at this terminal. Never present interactive menus, choices, or questions in the terminal. When a skill or tool offers options (for example /loop offering a cloud schedule), silently take the session-local non-interactive path and continue."
+
 # Model single-quoted so sh doesn't glob the [1m] brackets (see LOOP_SHELL_COMMAND).
-LOOP_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop /neutral-reconcile'"
+LOOP_CMD="claude --model '$MODEL' $CLAUDE_ARGS --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop /neutral-reconcile'"
 
 # sessionName(): chars outside [A-Za-z0-9_-] collapse to '-'.
 sanitize() { printf '%s' "$1" | sed -e 's/[^A-Za-z0-9_-]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//'; }
@@ -168,9 +176,13 @@ done
 # heals the loops (judgment) — neither watches itself.
 WATCHDOG="${NEUTRAL_WATCHDOG:-1}"
 WATCHDOG_SESSION="neutral-watchdog"
+# The watchdog's model is independently overridable (its ticks are mostly
+# mechanical checks); empty means "same as the loops".
+WATCHDOG_MODEL="${NEUTRAL_WATCHDOG_MODEL:-$MODEL}"
 # 55m, not 1h: /loop offers an interactive "cloud schedule?" menu for
-# intervals ≥60 min, which wedges a headless session at the menu.
-WATCHDOG_CMD="claude --model '$MODEL' $CLAUDE_ARGS '/loop 55m /neutral-watchdog'"
+# intervals ≥60 min, which wedges a headless session at the menu. The
+# headless system prompt above is the second line of defense.
+WATCHDOG_CMD="claude --model '$WATCHDOG_MODEL' $CLAUDE_ARGS --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop 55m /neutral-watchdog'"
 if [ "$WATCHDOG" = "1" ]; then
   # The watchdog runs in /work (not a repo clone) — pre-trust it and pre-classify
   # it for hypaware sync, same as the repo dirs, so nothing interactive wedges it.

@@ -78,8 +78,11 @@ transcripts `~/.claude/projects/-work-<name>/*.jsonl`.
 
    ```bash
    tmux new-session -d -s <session> -c /work/<name> \
-     "claude --model '${NEUTRAL_MODEL:-claude-opus-5[1m]}' ${NEUTRAL_CLAUDE_ARGS:---dangerously-skip-permissions} '/loop /neutral-reconcile'"
+     "claude --model '${NEUTRAL_MODEL:-claude-opus-5[1m]}' ${NEUTRAL_CLAUDE_ARGS:---dangerously-skip-permissions} --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop /neutral-reconcile'"
    ```
+
+   (`NEUTRAL_HEADLESS_PROMPT` is exported by the entrypoint — it tells the
+   fresh session it is unattended so it never presents interactive menus.)
 
    Before ending it, read the pane tail and last transcript events so the log
    line can say what was mid-flight. Nothing that matters is lost: real work is
@@ -106,8 +109,8 @@ healthy this tick and your own context has grown past ~300k tokens, recycle
 instead — the tick's last act, targeting your own pane (no `-t`, LLP 0014):
 
 ```bash
-tmux respawn-pane -k "claude --model 'claude-opus-5[1m]' --dangerously-skip-permissions '/loop 55m /neutral-watchdog'"
+tmux respawn-pane -k "claude --model '${NEUTRAL_WATCHDOG_MODEL:-${NEUTRAL_MODEL:-claude-opus-5[1m]}}' ${NEUTRAL_CLAUDE_ARGS:---dangerously-skip-permissions} --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop 55m /neutral-watchdog'"
 ```
 
-The model is pinned explicitly — an unpinned respawn would silently revert the
-fresh watchdog to the default model (LLP 0020's lesson).
+The model is pinned explicitly via the env knobs — an unpinned respawn would
+silently revert the fresh watchdog to the default model (LLP 0020's lesson).
