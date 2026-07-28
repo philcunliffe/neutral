@@ -42,6 +42,31 @@ export NEUTRAL_HEADLESS_PROMPT="Headless autonomous session: no human is at this
 # Model single-quoted so sh doesn't glob the [1m] brackets (see LOOP_SHELL_COMMAND).
 LOOP_CMD="claude --model '$MODEL' $CLAUDE_ARGS --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop /neutral-reconcile'"
 
+# --- mayor command (LLP 0039/0042) --------------------------------------------
+# The mayor's respawn command has ONE source of truth — this export — shared by
+# the supervisor below, the watchdog's heal, and the mayor's own end-of-tick
+# recycle (LLP 0039 §mutual-coverage; a hand-reconstructed respawn is LLP 0020's
+# lesson). Exported unconditionally and BEFORE the first tmux call, so it lands
+# in the tmux server environment every later session inherits.
+MAYOR="${NEUTRAL_MAYOR:-0}"
+MAYOR_SESSION="neutral-mayor"
+BRIDGE_SESSION="slack-bridge"
+MAYOR_MODEL="${NEUTRAL_MAYOR_MODEL:-$MODEL}"
+export NEUTRAL_MAYOR_CMD="claude --model '$MAYOR_MODEL' $CLAUDE_ARGS --append-system-prompt '$NEUTRAL_HEADLESS_PROMPT' '/loop /neutral-mayor'"
+BRIDGE_CMD="node /opt/neutral/docker/slack-bridge.js"
+
+# Opting in without the Slack app configured is a config error — die loudly at
+# boot rather than limping into a mayor that can neither hear nor speak
+# (config surface: LLP 0042).
+if [ "$MAYOR" = "1" ]; then
+  for v in SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_CHANNEL_ID SLACK_ALLOWED_USER_IDS; do
+    if [ -z "${!v:-}" ]; then
+      echo "NEUTRAL_MAYOR=1 but $v is unset — create the Slack app and pass the LLP 0042 config surface, or set NEUTRAL_MAYOR=0." >&2
+      exit 1
+    fi
+  done
+fi
+
 # sessionName(): chars outside [A-Za-z0-9_-] collapse to '-'.
 sanitize() { printf '%s' "$1" | sed -e 's/[^A-Za-z0-9_-]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//'; }
 
@@ -203,6 +228,41 @@ if [ "$WATCHDOG" = "1" ]; then
   fi
 fi
 
+# --- mayor + slack bridge (LLP 0039/0040) -------------------------------------
+# The fourth loop: the mayor converses with the human over Slack. The bridge is
+# the inbound plumbing only — a dumb Socket Mode daemon that drops everything
+# but allowlisted users' messages before anything reaches a model; outbound
+# (chat.postMessage) bypasses it entirely. Division of labor mirrors the
+# watchdog's: the supervisor below respawns a DEAD bridge or mayor
+# (deterministic); a WEDGED mayor is the watchdog's to heal (LLP 0039
+# §mutual-coverage).
+if [ "$MAYOR" = "1" ]; then
+  # The mayor runs in /work like the watchdog — same pre-trust + sync classify
+  # (idempotent; repeated here so the mayor doesn't depend on the watchdog knob).
+  jq '.projects["/work"] = ((.projects["/work"] // {}) + {hasTrustDialogAccepted: true, hasCompletedProjectOnboarding: true})' \
+     ~/.claude.json > ~/.claude.json.tmp && mv ~/.claude.json.tmp ~/.claude.json
+  if [ "$HYPAWARE" = "1" ]; then
+    hyp ignore --sync /work >/dev/null || log "WARNING: could not pre-classify /work for sync"
+  fi
+
+  if tmux has-session -t "=$BRIDGE_SESSION" 2>/dev/null; then
+    log "session $BRIDGE_SESSION already running"
+  else
+    log "starting slack bridge in tmux session $BRIDGE_SESSION"
+    tmux new-session -d -s "$BRIDGE_SESSION" "$BRIDGE_CMD"
+  fi
+
+  SESSIONS+=("$MAYOR_SESSION")
+  DIRS+=(/work)
+  CMDS+=("$NEUTRAL_MAYOR_CMD")
+  if tmux has-session -t "=$MAYOR_SESSION" 2>/dev/null; then
+    log "session $MAYOR_SESSION already running"
+  else
+    log "starting mayor in tmux session $MAYOR_SESSION"
+    spawn_loop /work "$MAYOR_SESSION" "$NEUTRAL_MAYOR_CMD"
+  fi
+fi
+
 log "${#SESSIONS[@]} loop(s) running: ${SESSIONS[*]}"
 log "watch one with: docker exec -it <container> tmux attach -t <session>"
 
@@ -238,6 +298,21 @@ while :; do
   if [ "$WATCHDOG" = "1" ] && ! tmux has-session -t "=$WATCHDOG_SESSION" 2>/dev/null; then
     log "WARNING: watchdog session exited — respawning"
     spawn_loop /work "$WATCHDOG_SESSION" "$WATCHDOG_CMD"
+  fi
+
+  # Dead mayor and dead bridge are the supervisor's, deterministically; a
+  # wedged mayor is the watchdog's (LLP 0039 §mutual-coverage). The bridge is
+  # inbound-only plumbing — while it is down, the mayor's outbound still flows
+  # and its tick polls history for inbound (degraded mode, LLP 0042 R5).
+  if [ "$MAYOR" = "1" ]; then
+    if ! tmux has-session -t "=$BRIDGE_SESSION" 2>/dev/null; then
+      log "WARNING: slack bridge exited — respawning"
+      tmux new-session -d -s "$BRIDGE_SESSION" "$BRIDGE_CMD"
+    fi
+    if ! tmux has-session -t "=$MAYOR_SESSION" 2>/dev/null; then
+      log "WARNING: mayor session exited — respawning"
+      spawn_loop /work "$MAYOR_SESSION" "$NEUTRAL_MAYOR_CMD"
+    fi
   fi
 
   alive=0

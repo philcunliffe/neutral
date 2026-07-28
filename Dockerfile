@@ -53,7 +53,8 @@ USER neutral
 RUN mkdir -p /home/neutral/.claude/skills \
   && ln -s /opt/neutral/.claude/skills/neutral-reconcile /home/neutral/.claude/skills/neutral-reconcile \
   && ln -s /opt/neutral/.claude/skills/neutral-init /home/neutral/.claude/skills/neutral-init \
-  && ln -s /opt/neutral/.claude/skills/neutral-watchdog /home/neutral/.claude/skills/neutral-watchdog
+  && ln -s /opt/neutral/.claude/skills/neutral-watchdog /home/neutral/.claude/skills/neutral-watchdog \
+  && ln -s /opt/neutral/.claude/skills/neutral-mayor /home/neutral/.claude/skills/neutral-mayor
 
 # Pre-seed Claude Code's user config so a headless first run never stops at
 # interactive onboarding (theme picker / bypass-permissions confirmation).
@@ -79,6 +80,16 @@ ENV NEUTRAL_CLAUDE_ARGS="--dangerously-skip-permissions"
 # watchdog's model independently of the loops (empty = NEUTRAL_MODEL).
 ENV NEUTRAL_WATCHDOG="1"
 ENV NEUTRAL_WATCHDOG_MODEL=""
+
+# Mayor: a fourth loop that converses with the human over Slack, plus the
+# Socket Mode bridge daemon for inbound (LLPs 0039-0042). Off by default until
+# a Slack app exists. Enabling requires the LLP 0042 config surface at run
+# time: -e SLACK_BOT_TOKEN=... -e SLACK_APP_TOKEN=... -e SLACK_CHANNEL_ID=...
+# -e SLACK_ALLOWED_USER_IDS=U... (comma-separated allowlist, enforced at the
+# bridge). NEUTRAL_MAYOR_MODEL overrides the mayor's model (empty =
+# NEUTRAL_MODEL).
+ENV NEUTRAL_MAYOR="0"
+ENV NEUTRAL_MAYOR_MODEL=""
 
 # HypAware capture. On by default (local cache only); central sync activates
 # when both HYP_REMOTE_URL and HYP_REMOTE_TOKEN are set at run time. Forwarded

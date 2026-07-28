@@ -19,10 +19,25 @@ confirmation. Every decision below is yours to make from observed state.
 Sessions named `neutral-*` on the local tmux server (`tmux ls -F
 '#{session_name}'`), **excluding your own session** (`tmux display-message -p
 '#S'`) and `hyp-daemon`. Session `neutral-<name>` ↔ working dir `/work/<name>` ↔
-transcripts `~/.claude/projects/-work-<name>/*.jsonl`.
+transcripts `~/.claude/projects/-work-<name>/*.jsonl` — **except
+`neutral-mayor`**, recognized by name (next bullet); the name→repo mapping
+never applies to it.
 
+- **`neutral-mayor` is a target, but not a reconcile loop** (LLP 0039). It runs
+  in `/work` itself (like you), so its transcripts sit in
+  `~/.claude/projects/-work/*.jsonl` **mixed with your own** — the mayor's are
+  the files whose early records carry `/neutral-mayor` (e.g. `grep -l
+  'neutral-mayor'`); never read your own files as its heartbeat. The same
+  45-minute predicate applies unchanged (its tick promise is the standard
+  ≤30-minute heartbeat). Heal it with the same ladder, but any respawn uses
+  **`$NEUTRAL_MAYOR_CMD`** (exported by the entrypoint — the single respawn
+  source), never the `/work/<name>` reconcile command: rebuilding the mayor as
+  a reconcile loop is exactly the mistake the by-name rule exists to prevent.
 - **`hyp-daemon` is not yours.** The entrypoint supervisor restarts it and
   re-attaches the loops. If it is dead, log it and move on.
+- **`slack-bridge` is not yours** (and not a claude session). The supervisor
+  respawns it when dead; the mayor's tick degrades to polling meanwhile. If it
+  is dead, log it and move on.
 - **Never touch your own session** — the supervisor respawns a dead watchdog
   (LLP 0034 §mutual-coverage); you do not self-heal beyond the recycle rule below.
 - A repo dir (`/work/*/`) with **no matching session at all** gets a fresh session
@@ -87,6 +102,12 @@ transcripts `~/.claude/projects/-work-<name>/*.jsonl`.
 
    (`NEUTRAL_HEADLESS_PROMPT` is exported by the entrypoint — it tells the
    fresh session it is unattended so it never presents interactive menus.)
+
+   For **`neutral-mayor`** the respawn is instead:
+
+   ```bash
+   tmux new-session -d -s neutral-mayor -c /work "$NEUTRAL_MAYOR_CMD"
+   ```
 
    Before ending it, read the pane tail and last transcript events so the log
    line can say what was mid-flight. Nothing that matters is lost: real work is
