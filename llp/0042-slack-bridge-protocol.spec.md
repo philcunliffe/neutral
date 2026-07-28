@@ -66,6 +66,10 @@ what has been reported; no notification ledger exists (LLP 0002). Bounded
 lookback (and free-plan 90-day retention) means a long-ignored artifact may
 re-announce once past the window — accepted as a periodic nag.
 
+> **Extended-by [LLP 0044](0044-pinned-event-roots.decision.md):** `pins.list`
+> is now the first dedupe read (pins don't age out); the history scan remains
+> the fallback and covers resolved-and-unpinned keys.
+
 <a id="stuck-relay"></a>**Stuck-reply relay**: a thread reply under a `stuck`
 root posts to that PR as a comment — the human's text verbatim, **no
 marker**, followed by a blank line and `— relayed from Slack` (LLP 0041

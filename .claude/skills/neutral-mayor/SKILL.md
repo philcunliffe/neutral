@@ -83,11 +83,29 @@ truth across every repo clone (`/work/*/` with a `.git`) and session:
   disjoint from PR `stuck` keys in the shared number space.
   Key: `[neutral <owner/repo>#<issue> issue-stuck]`
 
-**Dedupe is a bounded history scan** (LLP 0042 §dedupe): fetch
-`conversations.history` (limit 200) and post **only if no message's first line
-equals the key**. Slack is the ground truth for what has been reported — no
-ledger. Same event → same key → at most once; past the lookback window a
-long-ignored artifact may re-announce — an accepted periodic nag.
+**Dedupe reads pins first, then a bounded history scan** (LLP 0044
+§pin-dedupe, LLP 0042 §dedupe): a key already on a pinned message
+(`pins.list`) or in `conversations.history` (limit 200) is already reported —
+post only if absent from both. Slack is the ground truth for what has been
+reported; no ledger. Pins don't age out, so a still-waiting event never
+re-announces; only resolved-and-recurred events can nag past the window.
+
+**Pin what you post; unpin what resolved** (LLP 0044 §pin-lifecycle): after
+posting an event root, `pins.add` it — the 📌 list is the live
+waiting-on-you queue. Each tick, sweep `pins.list`: for every pinned message
+whose first line is one of your keys, re-derive whether the event still
+waits (PR gone/merged or back in work, stuck label cleared or head moved,
+session transcript fresh, issue closed/unlabelled or fix state moved) and
+`pins.remove` the resolved ones. **Never unpin a message whose first line is
+not a key** — human pins are theirs. If pinning fails (Slack's 100-pin cap),
+log it and carry on; the root still stands in history.
+
+```bash
+curl -s -X POST https://slack.com/api/pins.add \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg t "$root_ts" '{channel:$c, timestamp:$t}')"
+# pins.remove is the same shape; pins.list is a GET with ?channel=
+```
 
 The message: **first line is the key, exactly** (machine-findable, LLP 0042
 §notification-key), then a short human answer-ready body — what it is, the

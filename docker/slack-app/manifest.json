@@ -15,7 +15,9 @@
       "bot": [
         "chat:write",
         "channels:history",
-        "groups:history"
+        "groups:history",
+        "pins:read",
+        "pins:write"
       ]
     }
   },
