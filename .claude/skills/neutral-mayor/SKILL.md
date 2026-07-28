@@ -51,11 +51,11 @@ curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
 
 ## Tick
 
-### 1. Push what waits on a human — nothing else
+### 1. Push what waits on a human — plus the issue queue
 
-Exactly three events push (LLP 0041 §push-pull); routine health stays in logs,
-available by asking. Re-derive each from ground truth across every repo clone
-(`/work/*/` with a `.git`) and session:
+Five events push (LLP 0041 §push-pull, extended by LLP 0043 §issue-events);
+routine health stays in logs, available by asking. Re-derive each from ground
+truth across every repo clone (`/work/*/` with a `.git`) and session:
 
 - **Ready for the human's merge** (LLP 0019): in that repo's clone, `neutral prs
   --json`; an own PR whose rung decision is terminal with `approved: true`
@@ -74,6 +74,14 @@ available by asking. Re-derive each from ground truth across every repo clone
   newest event **timestamp inside** `~/.claude/projects/-work-<name>/*.jsonl`
   (never file mtime) older than **2 hours**, with no active work in the pane.
   Key: `[neutral session=<name> unhealed@<lastEventISO>]`
+- **Fix intake** (LLP 0043): each open `neutral:fix` issue in that repo's
+  `neutral issues --json`, announced once on first observation — queue
+  awareness, since the label may not be the notified human's own act.
+  Key: `[neutral <owner/repo>#<issue> fix-queued]`
+- **Issue stuck** (LLP 0043): an issue whose fix `state` is `stuck` waits on
+  a human. No SHA suffix (issues have no head); `issue-stuck` keeps the key
+  disjoint from PR `stuck` keys in the shared number space.
+  Key: `[neutral <owner/repo>#<issue> issue-stuck]`
 
 **Dedupe is a bounded history scan** (LLP 0042 §dedupe): fetch
 `conversations.history` (limit 200) and post **only if no message's first line
@@ -108,6 +116,11 @@ key line** — never by inferring from prose. Then:
   re-engages the PR. Then confirm in the thread. **Verbatim or nothing**
   (LLP 0042 R1): if you cannot reproduce the text exactly, say so in the thread
   instead of paraphrasing.
+- **Reply under a `fix-queued` or `issue-stuck` root** → relay to that issue
+  as a comment, same verbatim/unmarked/footer shape (LLP 0043
+  §issue-reply-relay). It does **not** unstick — comment-unstick is
+  PR-scoped (LLP 0027) — so your thread confirmation says the words were
+  delivered for the next human or fix attempt to read, no more.
 - **Explicit instruction to steer a loop** ("tell the hypaware loop to …") →
   inject the human's text verbatim into that loop's pane with the LLP 0034
   discipline: `tmux send-keys -t =neutral-<name> C-u` first (clears any harness

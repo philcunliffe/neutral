@@ -56,6 +56,10 @@ machine-findable key, mirroring LLP 0026's head-keyed baseline:
 Same event → same key → posted at most once; a re-stick at a new head is a
 new key and notifies afresh.
 
+> **Extended-by [LLP 0043](0043-issue-push-events.decision.md):** issue-family
+> keys `[neutral <repo>#<issue> fix-queued]` and `[neutral <repo>#<issue>
+> issue-stuck]` — suffix-free (issues have no head SHA), same dedupe.
+
 <a id="dedupe"></a>**Dedupe is a bounded `conversations.history` scan** for
 the key (a bot token cannot use Slack search) — Slack is the ground truth for
 what has been reported; no notification ledger exists (LLP 0002). Bounded

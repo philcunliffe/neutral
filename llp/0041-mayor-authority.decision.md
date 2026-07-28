@@ -42,6 +42,11 @@ health stays in logs, available by asking. The failed-heal event is
 re-derived, never watchdog-reported: still-wedged after ~2 watchdog cadences
 means the heal ladder was exhausted (LLP 0002).
 
+> **Extended-by [LLP 0043](0043-issue-push-events.decision.md):** two
+> issue-family events join the push set — `neutral:fix` intake (a deliberate
+> queue-awareness widening of the waits-on-a-human criterion) and stuck
+> issues.
+
 <a id="no-irreversible"></a>**No irreversible acts in v1.** The mayor does
 not merge, close, or approve. Per RFC 0038 §OQ2 this is deferred on
 *protocol*, not authority: a merge command from an allowlisted Slack ID would

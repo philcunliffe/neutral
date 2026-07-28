@@ -12,12 +12,19 @@
   },
   "oauth_config": {
     "scopes": {
-      "bot": ["chat:write", "channels:history"]
+      "bot": [
+        "chat:write",
+        "channels:history",
+        "groups:history"
+      ]
     }
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": ["message.channels"]
+      "bot_events": [
+        "message.channels",
+        "message.groups"
+      ]
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": true,
