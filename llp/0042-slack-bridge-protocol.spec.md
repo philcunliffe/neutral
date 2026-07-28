@@ -60,6 +60,11 @@ new key and notifies afresh.
 > keys `[neutral <repo>#<issue> fix-queued]` and `[neutral <repo>#<issue>
 > issue-stuck]` — suffix-free (issues have no head SHA), same dedupe.
 
+> **Extended-by [LLP 0046](0046-readable-event-roots.decision.md):** roots
+> post as Block Kit (header title first); the key moves to the `text`
+> fallback field, matched as an exact string anywhere in `text` rather than
+> as the first line. Key formats unchanged.
+
 <a id="dedupe"></a>**Dedupe is a bounded `conversations.history` scan** for
 the key (a bot token cannot use Slack search) — Slack is the ground truth for
 what has been reported; no notification ledger exists (LLP 0002). Bounded

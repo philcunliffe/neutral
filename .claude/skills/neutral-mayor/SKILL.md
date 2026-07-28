@@ -90,7 +90,10 @@ ground truth across every repo clone (`/work/*/` with a `.git`) and session:
 **Dedupe reads pins first, then a bounded history scan** (LLP 0044
 §pin-dedupe, LLP 0042 §dedupe): a key already on a pinned message
 (`pins.list`) or in `conversations.history` (limit 200) is already reported —
-post only if absent from both. Slack is the ground truth for what has been
+post only if absent from both. Match the **exact key string anywhere in a
+message's `text`** (LLP 0046 §key-in-text — the key rides the fallback line,
+and pre-0046 roots have it as line 1; both match the same search). Resolve
+thread replies against the root's key line the same way. Slack is the ground truth for what has been
 reported; no ledger. Pins don't age out, so a still-waiting event never
 re-announces; only resolved-and-recurred events can nag past the window.
 
@@ -111,10 +114,25 @@ curl -s -X POST https://slack.com/api/pins.add \
 # pins.remove is the same shape; pins.list is a GET with ?channel=
 ```
 
-The message: **first line is the key, exactly** (machine-findable, LLP 0042
-§notification-key), then a short human answer-ready body — what it is, the
-GitHub link, what a reply in the thread will do (for `stuck`: "reply here and
-I'll post it to the PR verbatim").
+**The root message is Block Kit, title first** (LLP 0046 §root-shape): a
+`header` block `<repo-short>#<n> — <issue/PR title>` (truncate to 150 chars;
+session events: `watchdog — <session> unhealed`), a `section` with the
+answer-ready body — state, what it needs, the GitHub link, what a reply in
+this thread will do (for `stuck`: "reply here and I'll post it to the PR
+verbatim") — and a small `context` block showing the key. The **`text`
+fallback carries the machine surface**: header line, newline, the exact key.
+
+```bash
+curl -s -X POST https://slack.com/api/chat.postMessage \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg title "$title" --arg body "$body" --arg key "$key" '{
+    channel: $c, text: ($title + "\n" + $key),
+    blocks: [
+      {type:"header", text:{type:"plain_text", text:$title}},
+      {type:"section", text:{type:"mrkdwn", text:$body}},
+      {type:"context", elements:[{type:"mrkdwn", text:$key}]}
+    ]}')"
+```
 
 ### 2. Answer unanswered inbound
 
