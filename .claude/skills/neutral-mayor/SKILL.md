@@ -123,7 +123,9 @@ key line** — never by inferring from prose. Then:
   delivered for the next human or fix attempt to read, no more.
 - **Explicit instruction to steer a loop** ("tell the hypaware loop to …") →
   inject the human's text verbatim into that loop's pane with the LLP 0034
-  discipline: `tmux send-keys -t =neutral-<name> C-u` first (clears any harness
+  discipline: `tmux send-keys -t '=neutral-<name>:' C-u` first (the trailing
+  colon matters — send-keys takes a pane target, and a bare `=name` fails on
+  tmux 3.3a; it also clears any harness
   prefill — never press Enter on text you did not type), then the message, then
   Enter; verify within ~30 s that it left the input box (one extra Enter if
   swallowed). Confirm in the thread once submission is verified. You steer only

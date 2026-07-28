@@ -118,7 +118,11 @@ export function makeDeduper(cap = 1000) {
  * @returns {Promise<boolean>} true when submission was verified
  */
 export async function injectIntoPane(framed, session, exec, sleep = ms => new Promise(r => setTimeout(r, ms))) {
-  const target = ['-t', `=${session}`]
+  // `=name:` — exact-match session, default window/pane. The trailing colon is
+  // load-bearing: send-keys/paste-buffer/capture-pane take PANE targets, and on
+  // tmux 3.3a a bare `=name` resolves only for session targets ("can't find
+  // pane: =name") — found live by the mayor when every injection failed.
+  const target = ['-t', `=${session}:`]
   await exec(['send-keys', ...target, 'C-u'])
   await exec(['load-buffer', '-b', 'neutral-slack', '-'], framed)
   await exec(['paste-buffer', '-p', '-d', '-b', 'neutral-slack', ...target])

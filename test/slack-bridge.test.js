@@ -121,7 +121,7 @@ test('injectIntoPane: C-u, bracketed paste of the exact text, Enter, verified su
   assert.equal(calls[1].input, framed, 'pastes the framed text verbatim')
   assert.ok(calls[2].args.includes('-p'), 'bracketed paste so newlines cannot submit early')
   assert.ok(calls[3].args.includes('Enter'))
-  assert.ok(calls[0].args.includes('=neutral-mayor'), 'exact-match session target')
+  assert.ok(calls[0].args.includes('=neutral-mayor:'), 'exact-match session, pane-resolvable (trailing colon)')
 })
 
 test('injectIntoPane: swallowed Enter is retried once, then verifies', async () => {
