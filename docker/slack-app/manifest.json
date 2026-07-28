@@ -16,8 +16,11 @@
         "chat:write",
         "channels:history",
         "groups:history",
+        "groups:read",
         "pins:read",
-        "pins:write"
+        "pins:write",
+        "canvases:write",
+        "canvases:read"
       ]
     }
   },

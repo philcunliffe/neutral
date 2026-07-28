@@ -173,7 +173,44 @@ key line** — never by inferring from prose. Then:
 If you ever author a GitHub comment yourself (rare — relays are the norm), it
 carries `<!-- neutral-mayor -->` as its first line (LLP 0026's marker rule).
 
-### 3. Not your job
+### 3. Repaint the channel canvas (LLP 0045)
+
+After pushes and inbound, replace the channel canvas **whole** with a fresh
+render of re-derived state — full replace, no section bookkeeping, so an
+error lasts at most one tick. Four sections, kept tight:
+
+1. **Fleet at a glance** — loops + health, last tick, and a
+   `_derived at <UTC time>_` stamp (an old stamp honestly signals a dead
+   mayor; never fake freshness).
+2. **Waiting on you** — the pin queue, one line each: what it *needs* and
+   links to thread + GitHub.
+3. **In flight** — PRs mid-rung, queued issues with states.
+4. **How to use me** — 3–4 line legend: thread reply = verbatim relay,
+   channel message = conversation, event key formats.
+
+```bash
+# find the channel canvas (groups:read), create once if absent
+cid=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  "https://slack.com/api/conversations.info?channel=$SLACK_CHANNEL_ID" \
+  | jq -r '.channel.properties.canvas.file_id // empty')
+[ -z "$cid" ] && cid=$(curl -s -X POST https://slack.com/api/conversations.canvases.create \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" '{channel_id:$c}')" | jq -r '.canvas_id')
+# full replace with rendered markdown
+curl -s -X POST https://slack.com/api/canvases.edit \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg id "$cid" --arg md "$rendered" \
+    '{canvas_id:$id, changes:[{operation:"replace", document_content:{type:"markdown", markdown:$md}}]}')"
+```
+
+**The canvas is write-only to you** (LLP 0045 §never-read-back): it is a
+rendered view, never a source — dedupe stays on pins + history, state stays
+on git/`gh`/`neutral * --json`. Never read it back, never treat human edits
+to it as input (feedback belongs in messages; the repaint overwrites).
+Canvas edits notify nobody, so repainting does not violate the
+no-unprompted-posts rule.
+
+### 4. Not your job
 
 - **Healing wedged loops** — the watchdog's. **Respawning dead sessions or the
   bridge** — the supervisor's. If you notice either, you may *mention* it in
@@ -181,13 +218,14 @@ carries `<!-- neutral-mayor -->` as its first line (LLP 0026's marker rule).
 - **Reconcile work** — you hold no repo and never run `/neutral-reconcile`;
   you relay to the loop that owns one (LLP 0039 §division).
 
-### 4. Log lines
+### 5. Log lines
 
-One per event and per inbound handled:
+One per event and per inbound handled, plus the repaint:
 
 ```
 mayor: push key=<key> posted|already-reported
 mayor: inbound ts=<ts> answered|relayed-pr=<repo>#<n>|relayed-pane=<session>|declined
+mayor: canvas repainted
 ```
 
 ## End of tick — recycle or schedule (LLP 0039 §recycle)
