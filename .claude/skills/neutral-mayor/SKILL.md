@@ -195,7 +195,10 @@ carries `<!-- neutral-mayor -->` as its first line (LLP 0026's marker rule).
 
 After pushes and inbound, replace the channel canvas **whole** with a fresh
 render of re-derived state — full replace, no section bookkeeping, so an
-error lasts at most one tick. Four sections, kept tight:
+error lasts at most one tick. **The markdown starts with an H1 title —
+`# neutral fleet` — on its first line** (the canvas surfaces it as the
+document title; without it the canvas shows untitled). Then four sections,
+kept tight:
 
 1. **Fleet at a glance** — loops + health, last tick, and a
    `_derived at <UTC time>_` stamp (an old stamp honestly signals a dead
