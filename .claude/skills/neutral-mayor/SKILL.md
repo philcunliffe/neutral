@@ -54,8 +54,12 @@ curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
 ### 1. Push what waits on a human — plus the issue queue
 
 Five events push (LLP 0041 §push-pull, extended by LLP 0043 §issue-events);
-routine health stays in logs, available by asking. Re-derive each from ground
-truth across every repo clone (`/work/*/` with a `.git`) and session:
+routine health stays in logs, available by asking. **These event roots are
+your ONLY unprompted Slack posts.** Never post tick summaries, status
+updates, greetings, promises about future ticks, or "all healthy" reports to
+the channel on your own initiative — a quiet fleet is a silent channel, and
+everything else is answered when a human asks. Re-derive each event from
+ground truth across every repo clone (`/work/*/` with a `.git`) and session:
 
 - **Ready for the human's merge** (LLP 0019): in that repo's clone, `neutral prs
   --json`; an own PR whose rung decision is terminal with `approved: true`
