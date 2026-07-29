@@ -124,7 +124,10 @@ Code realizing this spec annotates `// @ref LLP 0036#... [implements]`.
   worktree prune, dependency hygiene) — each still gets its own spec (LLP 0011).
 - **A cross-tick no-op cooldown record** (e.g. "don't re-scan until the target
   head moves") — a possible spend optimization; v1 accepts the idempotent
-  re-scan. Open question for a later revision.
+  re-scan. Open question for a later revision. **Resolved-by: LLP 0047** — a no-op
+  member is damped by target HEAD (re-scan only once HEAD advances) as a
+  session-scoped scheduling hint, and a *disposed* member is gated by a
+  configurable per-member cooldown.
 
 ## References
 

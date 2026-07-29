@@ -9,14 +9,16 @@ import { collectIdle } from '../src/commands/idle.js'
 /**
  * A fake runner answering git (fix-branch lookup) + gh (pr/issue), so the idle trigger
  * is exercised fully offline. The backlog comes from the (empty) temp repo's llp dir.
- * @param {{prs?: any[], views?: Record<number, any>, issues?: any[]}} cfg
+ * @param {{prs?: any[], views?: Record<number, any>, issues?: any[], disposed?: any[]}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeWorld({ prs = [], views = {}, issues = [] } = {}) {
+function fakeWorld({ prs = [], views = {}, issues = [], disposed = [] } = {}) {
   return async (cmd, args) => {
     if (cmd === 'git') return ''                       // for-each-ref etc. — no fix branches
     if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'list') {
       const fields = args[args.indexOf('--json') + 1]
+      // The closed-autophagy disposition query (LLP 0047) asks for mergedAt/closedAt.
+      if (fields.includes('closedAt')) return JSON.stringify(disposed)
       return JSON.stringify(prs.map(p => fields.includes('body')
         ? { number: p.number, body: p.body || '', headRefName: p.headRefName }
         : { number: p.number, headRefName: p.headRefName }))
@@ -123,7 +125,7 @@ test('collectIdle: a held autophagy PR keeps the tick idle but blocks the next c
     })
     const s = await collectIdle(repo, exec, () => 100_000)
     assert.equal(s.idle, true)            // held is at rest — the human must dispose
-    assert.equal(s.cleanup.eligible, false) // …but one autophagy PR at a time
+    assert.equal(s.members[0].eligible, false) // …but one autophagy PR at a time
     assert.equal(s.initiative, null)
   } finally {
     rmSync(repo, { recursive: true, force: true })
@@ -152,8 +154,36 @@ test('collectIdle: autophagy.codeCleanup=false leaves an idle tick with no initi
     writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ autophagy: { codeCleanup: false } }))
     const s = await collectIdle(repo, fakeWorld(), () => 100_000)
     assert.equal(s.idle, true)
-    assert.equal(s.cleanup.eligible, false)
+    assert.equal(s.members[0].eligible, false)
     assert.equal(s.initiative, null)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectIdle: a recently-merged cleanup PR holds the tick idle with no initiative (cooldown, LLP 0047)', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    const now = Date.parse('2026-07-28T00:00:00Z')
+    const mergedAt = new Date(now - 2 * 3600_000).toISOString() // 2h ago, inside the 24h merge cooldown
+    const exec = fakeWorld({ disposed: [{ number: 8, headRefName: 'autophagy/cleanup-2026-07-27', mergedAt, closedAt: mergedAt }] })
+    const s = await collectIdle(repo, exec, () => 100_000, { now })
+    assert.equal(s.idle, true)                 // nothing in flight — genuinely at rest
+    assert.equal(s.initiative, null)           // …but the member is cooling down
+    assert.equal(s.members[0].eligible, false)
+    assert.match(s.members[0].reason, /merge cooldown/)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectIdle: a no-op-damped member yields a deliberately idle tick (LLP 0047)', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    const s = await collectIdle(repo, fakeWorld(), () => 100_000, { damped: ['cleanup'] })
+    assert.equal(s.idle, true)
+    assert.equal(s.initiative, null)
+    assert.match(s.members[0].reason, /no-op damped/)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

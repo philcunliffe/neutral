@@ -87,6 +87,28 @@ test('loadConfig accepts a boolean autophagy.codeCleanup, else keeps the default
   }
 })
 
+test('loadConfig accepts non-negative integer autophagy cooldowns, else keeps defaults (LLP 0047)', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
+  try {
+    assert.equal(DEFAULT_CONFIG.autophagy.cooldownAfterMergeHours, 24)
+    assert.equal(DEFAULT_CONFIG.autophagy.cooldownAfterRejectHours, 168)
+    mkdirSync(join(repo, '.neutral'))
+    /** @param {unknown} v */
+    const write = (v) => writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ autophagy: v }))
+    write({ cooldownAfterMergeHours: 6, cooldownAfterRejectHours: 72 })
+    assert.equal(loadConfig(repo).autophagy.cooldownAfterMergeHours, 6)
+    assert.equal(loadConfig(repo).autophagy.cooldownAfterRejectHours, 72)
+    write({ cooldownAfterMergeHours: 0 })                              // 0 is valid — disables the arm
+    assert.equal(loadConfig(repo).autophagy.cooldownAfterMergeHours, 0)
+    write({ cooldownAfterMergeHours: -3 })                            // negative -> default
+    assert.equal(loadConfig(repo).autophagy.cooldownAfterMergeHours, 24)
+    write({ cooldownAfterRejectHours: 1.5 })                          // non-integer -> default
+    assert.equal(loadConfig(repo).autophagy.cooldownAfterRejectHours, 168)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('a config can remap `plan` out of the design role', () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
   try {

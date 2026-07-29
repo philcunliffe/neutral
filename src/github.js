@@ -8,6 +8,7 @@
 // @ref LLP 0009#pr-health-reconciler [implements] — observe in-scope PRs/issues
 import { run } from './git.js'
 import { ADOPT_LABEL } from './config.js'
+import { AUTOPHAGY_PREFIX } from './autophagy.js'
 
 /** @import { PrObservation } from './types.d.ts' */
 
@@ -65,6 +66,32 @@ export async function listMergedAdoptPRs(repo, exec = run) {
       headRefName: p.headRefName || '',
       labels: (Array.isArray(p.labels) ? p.labels : []).map(/** @param {any} l */ l => (typeof l === 'string' ? l : l && l.name) || '')
     })) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Closed (merged or rejected) PRs in the `autophagy/` namespace, with their disposition
+ * timestamps — the ground-truth anchor for the per-member idle cooldown (LLP 0047). A
+ * `mergedAt` marks an accepted proposal; a `closedAt` without it, a rejected one. gh's
+ * own timestamps, re-read fresh (cf. mergeability), never a self-reported ledger (LLP
+ * 0002). Newest-first as gh returns them; empty on any gh failure.
+ * @param {string} repo
+ * @param {typeof run} [exec]
+ * @returns {Promise<Array<{number: number, headRefName: string, mergedAt: string|null, closedAt: string|null}>>}
+ * @ref LLP 0047#cooldown [implements] — disposition timestamps anchor the cooldown
+ */
+export async function listDisposedAutophagyPRs(repo, exec = run) {
+  try {
+    const out = await exec('gh', ['pr', 'list', '--state', 'all', '--json', 'number,headRefName,mergedAt,closedAt', '--limit', '200'], repo)
+    const arr = JSON.parse(out)
+    if (!Array.isArray(arr)) return []
+    return arr
+      .map(/** @param {any} p */ p => ({ number: p.number, headRefName: p.headRefName || '', mergedAt: p.mergedAt || null, closedAt: p.closedAt || null }))
+      // Disposed ⇔ closedAt set (merged PRs carry both closedAt and mergedAt). Open PRs
+      // have neither and are excluded — they are the global gate's job, not the cooldown's.
+      .filter(p => p.headRefName.startsWith(AUTOPHAGY_PREFIX) && p.closedAt)
   } catch {
     return []
   }

@@ -46,6 +46,13 @@ rung `action` is for a PR (LLP 0009). The orchestrator performs the named
 initiative rather than re-deciding the priority in prose. Future members extend
 the enum and this priority list; they never add a second selection site.
 
+> **Extended-by: LLP 0047.** The single selection site and "runtime preempts repo
+> hygiene" survive; the *fixed priority list among repo-hygiene members*, and the
+> assumption that an eligible member always runs, are replaced by a cooldown-gated
+> **least-recently-run rotation** in which `null` (a deliberately idle tick) is a
+> first-class outcome. The `initiative` enum generalizes to
+> `recycle | <member> | null`.
+
 ## Rejected
 
 <a id="repo-first-rejected"></a>**Repo hygiene before recycle.** Superficially
