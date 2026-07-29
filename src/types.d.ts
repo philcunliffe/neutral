@@ -76,10 +76,14 @@ export interface NeutralConfig {
   automerge: boolean
   /** Context-autophagy trigger threshold T, in tokens (LLP 0013). */
   contextRecycleThreshold: number
-  /** Repo-hygiene autophagy switches (LLP 0036); future members add theirs here. */
+  /** Repo-hygiene autophagy switches + cooldowns (LLP 0036/0047); future members add theirs here. */
   autophagy: {
     /** The code-cleanup idle initiative (LLP 0036). Default on; the held-PR boundary is the safety. */
     codeCleanup: boolean
+    /** Hours a member backs off after an accepted (merged) cleanup PR (LLP 0047). 0 disables. */
+    cooldownAfterMergeHours: number
+    /** Hours a member backs off after a rejected (closed-unmerged) cleanup PR; defaults longer (LLP 0047). 0 disables. */
+    cooldownAfterRejectHours: number
   }
 }
 
@@ -205,12 +209,30 @@ export interface IdleState {
 }
 
 /**
- * Whether the code-cleanup initiative may run this idle tick (LLP 0036): the repo
- * switch is on and no `autophagy/` PR is open. Pure over the prs observe output.
+ * One repo-hygiene autophagy member's eligibility this idle tick (LLP 0047): on in
+ * config, past its cooldown since its last PR disposition, and not no-op damped. Pure
+ * over the prs observation, the closed-autophagy dispositions, config, and the clock.
  */
-export interface CleanupState {
+export interface MemberState {
+  /** Member id — the `autophagy/<id>-*` branch namespace (e.g. `cleanup`). */
+  id: string
   eligible: boolean
+  /** Wall-clock ms of cooldown left before this member may run again; 0 when not in cooldown. */
+  cooldownRemaining: number
+  /** Epoch ms of this member's last autophagy PR disposition, or null if it has never run. */
+  lastDisposition: number | null
   reason: string
+}
+
+/**
+ * The idle tick's selected repo-hygiene initiative (LLP 0047 §selection): the
+ * least-recently-run eligible member, or null for a deliberately idle tick, plus the
+ * per-member breakdown for logging.
+ */
+export interface InitiativeSelection {
+  /** The selected member id, or null when every member is off / in cooldown / damped / gated. */
+  initiative: string | null
+  members: MemberState[]
 }
 
 /** A `neutral:fix` issue's fix-attempt state, re-derived from ground truth (LLP 0009). */

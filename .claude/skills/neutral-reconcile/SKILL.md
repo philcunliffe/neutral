@@ -91,17 +91,22 @@ work, the tick verifies it.
    hint; the re-derivation is the conclusion.
 5. **Emit one log line per gap acted on:**
    `tick: family=<pipeline|maintenance> target=<slug|pr#N|issue#N> action=<…> detail=<…>`.
-6. **End of tick — the idle-initiative selection (LLP 0035).** Run
-   `neutral idle --json` and act on its `initiative` field — the CLI selects, you
-   act, you do not re-decide the priority:
-   - `initiative: "recycle"` (idle ∧ context > T, LLP 0013) — perform the
-     **context-autophagy respawn** (below) **instead of** scheduling. It is the
-     tick's last act; runtime hygiene preempts repo hygiene.
-   - `initiative: "cleanup"` (idle, recycle not due, member eligible, LLP 0036) —
-     run the **code-cleanup initiative** (below), then **return** and let the loop
+6. **End of tick — the idle-initiative selection (LLP 0035/0047).** Run
+   `neutral idle --json --damped <ids>` and act on its `initiative` field — the CLI
+   selects, you act, you do not re-decide the priority. `<ids>` is your session's
+   **no-op hint** (below): the comma-separated members that scanned the *current*
+   target HEAD and found nothing (omit `--damped` if none). `initiative` is one of:
+   - `"recycle"` (idle ∧ context > T, LLP 0013) — perform the **context-autophagy
+     respawn** (below) **instead of** scheduling. It is the tick's last act; runtime
+     hygiene preempts every repo-hygiene member.
+   - a **member id**, e.g. `"cleanup"` (idle, recycle not due, and this member is the
+     least-recently-run one past its cooldown and not damped, LLP 0047) — run that
+     member's initiative (code cleanup, below), then **return** and let the loop
      schedule the next tick.
-   - `initiative: null` — **return**; the loop schedules the next tick
-     (`ScheduleWakeup`).
+   - `null` — **return**; the loop schedules the next tick (`ScheduleWakeup`). This
+     is a legitimate, common outcome: every member may be off, cooling down since a
+     recent PR disposition, or no-op damped. A deliberately idle tick is correct, not
+     a missed opportunity (LLP 0047).
 
 ### Disjointness — the fan-out lock (LLP 0010)
 
@@ -198,9 +203,17 @@ reported a no-op), emit `tick: family=autophagy action=cleanup detail=pr#<N>` (o
 `action=cleanup-noop`), and return — the loop schedules the next tick. Once the
 PR is open the next ticks are **not idle** until it settles to `held`, so
 autophagy work serializes through the same gate as everything else (LLP 0035).
-After a no-op you MAY skip re-running cleanup on later idle ticks *within this
-session* while the target head hasn't moved — a scheduling hint, not a fact
-claim; a fresh session simply re-scans once.
+
+**No-op damping (LLP 0047 §noop-dampening).** A no-op opens no PR, so nothing
+rate-limits it in git. When `cleanup` reports a no-op, **note the current target
+HEAD SHA** and, on later idle ticks, pass `cleanup` to `neutral idle --damped`
+**while that SHA is still HEAD** — the same tree has no dead code, so re-scanning
+it is wasted. Drop `cleanup` from `--damped` the moment HEAD advances (real work
+landed → there may be new dead code). This is a **within-session scheduling hint,
+not a fact claim** (LLP 0002): hold it only in your session; a context recycle
+resets it, and the fresh orchestrator simply re-scans once and re-damps. The
+after-a-PR cooldown is separate and fully CLI-decided from the PR's disposition
+timestamp — you do not track it.
 
 ## Model tiering — the verifier picks the model (LLP 0020–0022)
 
@@ -637,6 +650,7 @@ neutral implementable --json  # pipeline: any Accepted design merged to target, 
 neutral prs --json            # maintenance: each in-scope PR's next rung action
 neutral issues --json         # maintenance: each neutral:fix issue's state
 # then fan out the branch-disjoint workers above and re-derive from git.
-neutral idle --json        # end of tick: act on `initiative` — recycle the pane (LLP 0013),
-                           # run the code-cleanup initiative (LLP 0036), or schedule (LLP 0035)
+neutral idle --json --damped <ids>  # end of tick: act on `initiative` — recycle the pane (LLP
+                           # 0013), run the least-recently-run eligible member (LLP 0047), or
+                           # schedule (LLP 0035). --damped = members that no-op'd at this HEAD
 ```

@@ -47,6 +47,14 @@ export const DEFAULT_REVIEW_ROUNDS = 2
 // generous on a 1M-window model. Empirical to tune, not a design unknown.
 // @ref LLP 0013#trigger [implements] — the threshold T
 export const DEFAULT_CONTEXT_THRESHOLD = 500_000
+// Idle-initiative cooldowns (LLP 0047): after a repo-hygiene member's PR reaches a
+// terminal disposition, the member waits this many wall-clock hours before it may run
+// again. Two, because the dispositions mean opposite things: a rejection ("stop
+// proposing this") backs off LONGER than an acceptance. Per-repo tunable; 0 disables
+// that arm. Empirical to tune, not a design unknown.
+// @ref LLP 0047#cooldown [implements] — the two disposition-keyed cooldowns
+export const DEFAULT_COOLDOWN_AFTER_MERGE_HOURS = 24
+export const DEFAULT_COOLDOWN_AFTER_REJECT_HOURS = 168
 
 /** @type {NeutralConfig} */
 export const DEFAULT_CONFIG = {
@@ -90,7 +98,12 @@ export const DEFAULT_CONFIG = {
   // wants no unprompted cleanup PRs switches the member off here.
   // @ref LLP 0036#eligibility [implements] — the per-repo off-switch
   autophagy: {
-    codeCleanup: true
+    codeCleanup: true,
+    // Idle-initiative cooldowns, wall-clock hours (LLP 0047). A member backs off this
+    // long after its cleanup PR is disposed — longer after a rejection than a merge.
+    // @ref LLP 0047#cooldown [implements]
+    cooldownAfterMergeHours: DEFAULT_COOLDOWN_AFTER_MERGE_HOURS,
+    cooldownAfterRejectHours: DEFAULT_COOLDOWN_AFTER_REJECT_HOURS
   }
 }
 
@@ -124,9 +137,22 @@ function merge(base, over) {
     autophagy: {
       codeCleanup: typeof (o.autophagy && o.autophagy.codeCleanup) === 'boolean'
         ? o.autophagy.codeCleanup
-        : base.autophagy.codeCleanup
+        : base.autophagy.codeCleanup,
+      // 0 is a valid value (disables the arm), so the gate is `>= 0`, not `> 0`.
+      cooldownAfterMergeHours: hoursOr(o.autophagy && o.autophagy.cooldownAfterMergeHours, base.autophagy.cooldownAfterMergeHours),
+      cooldownAfterRejectHours: hoursOr(o.autophagy && o.autophagy.cooldownAfterRejectHours, base.autophagy.cooldownAfterRejectHours)
     }
   }
+}
+
+/**
+ * A non-negative integer hour count, or the fallback. 0 is valid (disables the cooldown).
+ * @param {any} v
+ * @param {number} fallback
+ * @returns {number}
+ */
+function hoursOr(v, fallback) {
+  return Number.isInteger(v) && v >= 0 ? v : fallback
 }
 
 /**
