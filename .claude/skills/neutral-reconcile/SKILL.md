@@ -292,7 +292,10 @@ content edit — immutability holds) so the merged change set reads as shipped (
 
 1. In its **own detached worktree** (never the main checkout, LLP 0012):
    `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/integration/<slug> && cd "$WT"`.
-2. Mint `llp/NNNN-<slug>.plan.md` (`**Type:** plan`, `**Status:** Active`,
+2. Mint `llp/NNNN-<slug>.plan.md` — NNNN is one past the highest LLP number
+   across `<DEFAULT>` **and all `integration/*`** (`git ls-tree -r --name-only
+   <ref> llp/`), the Designer's rule; a same-branch-only max mints duplicates
+   that collide at merge (LLP 0048). Header: (`**Type:** plan`, `**Status:** Active`,
    `**Related:** <design #>`, `**Generated-by:** neutral`). Refine into small,
    independently-mergeable tasks; write a `## Tasks` block in the parser's format:
    ```

@@ -25,8 +25,11 @@ current working directory. Every step is idempotent; re-running the skill is saf
 ## 2. Scaffold — run `neutral init`
 
 Run it and show the output. It scaffolds `.neutral/config.json` +
-`.neutral/baseline.json` (never overwriting) and seeds the LLP-immutability
-convention block into `CLAUDE.md` (following a symlink, e.g. to `AGENTS.md`).
+`.neutral/baseline.json` (never overwriting), seeds the LLP-immutability
+convention block into `CLAUDE.md` (following a symlink, e.g. to `AGENTS.md`),
+and seeds `.github/workflows/llp-check.yml` — a merge-blocking CI check that
+fails on duplicate LLP numbers (LLP 0048; concurrent branches can mint the same
+number cleanly and only collide in the merged tree).
 **Exit 1 means the backlog is non-empty — expected on a brownfield repo, not an
 error.** That backlog is §4's work list.
 
@@ -44,6 +47,14 @@ governs decided content, not formatting):
 
 Re-run until it exits 0. Never rewrite what a doc decided or required to make a
 check pass — if a fix would change meaning, surface it to the human instead.
+
+**Duplicate numbers get priority** — the seeded `llp-check.yml` will hold the
+default branch red until they are gone. Renumber the doc whose number landed
+*second* (`git log --follow --diff-filter=A` dates the pair) to the next free
+number across the default branch **and** all `integration/*` branches, then
+retarget every `@ref`/mention that meant the moved doc — refs to a duplicated
+number still *resolve* (to the wrong doc), so no checker flags them; grep for
+`LLP NNNN` and judge each hit by context (LLP 0048#renumber-fix).
 
 ## 4. Survey — the backlog must be exactly the new work
 
