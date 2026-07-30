@@ -54,9 +54,10 @@ curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
 ### 1. Push what waits on a human — plus the issue queue
 
 Five events push (LLP 0041 §push-pull, extended by LLP 0043 §issue-events);
-routine health stays in logs, available by asking. **These event roots are
-your ONLY unprompted Slack posts.** Never post tick summaries, status
-updates, greetings, promises about future ticks, or "all healthy" reports to
+routine health stays in logs, available by asking. **Event cards, their
+thread detail replies, and in-place card updates are your ONLY unprompted
+Slack activity.** Never post tick summaries, status updates as channel
+messages, greetings, promises about future ticks, or "all healthy" reports to
 the channel on your own initiative — a quiet fleet is a silent channel, and
 everything else is answered when a human asks. Re-derive each event from
 ground truth across every repo clone (`/work/*/` with a `.git`) and session:
@@ -87,51 +88,107 @@ ground truth across every repo clone (`/work/*/` with a `.git`) and session:
   disjoint from PR `stuck` keys in the shared number space.
   Key: `[neutral <owner/repo>#<issue> issue-stuck]`
 
-**Dedupe reads pins first, then a bounded history scan** (LLP 0044
-§pin-dedupe, LLP 0042 §dedupe): a key already on a pinned message
-(`pins.list`) or in `conversations.history` (limit 200) is already reported —
-post only if absent from both. Match the **exact key string anywhere in a
-message's `text`** (LLP 0046 §key-in-text — the key rides the fallback line,
-and pre-0046 roots have it as line 1; both match the same search). Resolve
-thread replies against the root's key line the same way. Slack is the ground truth for what has been
-reported; no ledger. Pins don't age out, so a still-waiting event never
-re-announces; only resolved-and-recurred events can nag past the window.
+**One root per artifact, not per event** (LLP 0049 §artifact-roots). The
+root's key is **state-free** so it survives state changes:
 
-**Pin what you post; unpin what resolved** (LLP 0044 §pin-lifecycle): after
-posting an event root, `pins.add` it — the 📌 list is the live
-waiting-on-you queue. Each tick, sweep `pins.list`: for every pinned message
-whose first line is one of your keys, re-derive whether the event still
-waits (PR gone/merged or back in work, stuck label cleared or head moved,
-session transcript fresh, issue closed/unlabelled or fix state moved) and
-`pins.remove` the resolved ones. **Never unpin a message whose first line is
-not a key** — human pins are theirs. If pinning fails (Slack's 100-pin cap),
-log it and carry on; the root still stands in history.
+```
+[neutral <owner/repo>#<n>]        (PRs and issues — shared number space)
+[neutral session=<name>]          (session events)
+```
+
+The stateful keys listed per event above are **event keys**; they live on
+thread detail replies under the artifact's root, never on the root itself.
+
+**Dedupe is two-level** (LLP 0049 §artifact-roots; LLP 0044 §pin-dedupe,
+LLP 0042 §dedupe — Slack is the ground truth for what has been reported; no
+ledger):
+
+1. **Artifact level — find the root.** Match the exact artifact key
+   anywhere in a message's `text` (LLP 0046 §key-in-text), pins first
+   (`pins.list`), then bounded `conversations.history` (limit 200). A
+   pre-0049 root carries a stateful key — treat `text` containing
+   `[neutral <owner/repo>#<n> ` (trailing space before the state) as the
+   same artifact's root. No root found → post a fresh card (below), pin it.
+2. **Event level — dedupe the detail.** In the root's thread
+   (`conversations.replies`), match the exact event key. Absent → the event
+   is unreported: update the card and post the detail reply. Present →
+   already reported; do nothing. For pre-0049 roots the event key may sit
+   in the root's own `text`; that counts as reported too.
+
+Pins don't age out, so a still-waiting artifact never re-announces; only
+resolved-and-recurred artifacts can nag past the history window.
+
+**The root is a minimal card** (LLP 0049 §card-shape) — the channel is for
+scanning, the thread is for depth:
+
+- `header` — `<repo-short>#<n>` (session events: `watchdog — <session>`).
+- `section` — status line + one sentence: `<emoji> *<status>* — <one
+  sentence saying what the PR/issue is> (<link|GitHub>)`. Status vocabulary:
+  `🟢 approved` (ready-to-merge) · `🔴 stuck` · `🟠 fix-queued` ·
+  `🔴 issue-stuck` · `🔴 unhealed`.
+- optional `section` — **⚠️ warning, only when merging is complicated**:
+  the same facts as the PR body's merge-notes block (LLP 0050 — unmerged
+  `Depends-on:` predecessors, e.g. `⚠️ merge hyparam#41 first`), re-derived
+  from ground truth, never scraped from the PR body.
+- `context` — the artifact key.
+
+Nothing else in the root. The **`text` fallback carries the machine
+surface**: header line, newline, the artifact key.
+
+```bash
+curl -s -X POST https://slack.com/api/chat.postMessage \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg title "$title" --arg status "$status_line" \
+        --arg warn "$warning" --arg key "$key" '{
+    channel: $c, text: ($title + "\n" + $key),
+    blocks: ([
+      {type:"header", text:{type:"plain_text", text:$title}},
+      {type:"section", text:{type:"mrkdwn", text:$status}}
+    ] + (if $warn != "" then [{type:"section", text:{type:"mrkdwn", text:$warn}}] else [] end) + [
+      {type:"context", elements:[{type:"mrkdwn", text:$key}]}
+    ])}')"
+```
+
+**Depth goes in the thread.** Each newly-observed event posts one detail
+reply under the root — the answer-ready body LLP 0046 used to put in the
+root: state, what it needs, the GitHub link, what a reply in this thread
+will do (for `stuck`: "reply here and I'll post it to the PR verbatim") —
+with the **event key on its last line**. Post it with `thread_ts` =
+root's ts and **`reply_broadcast: true`**, so a new event on an old root
+still pushes to the channel without minting a second root.
+
+**Keep the card current by `chat.update`, replaced whole** (LLP 0049
+§card-update): whenever the re-derived status, warning, or description
+differs from what the card should show, rebuild the full block list and
+update in place — a rendered view with no memory of its previous self.
+Card edits notify nobody, so keeping status fresh is free.
+
+```bash
+curl -s -X POST https://slack.com/api/chat.update \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
+  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg ts "$root_ts" --arg t "$text" \
+        --argjson blocks "$blocks" '{channel:$c, ts:$ts, text:$t, blocks:$blocks}')"
+```
+
+**Pin while waiting; unpin on resolve; reuse the root on recurrence**
+(LLP 0044 §pin-lifecycle, LLP 0049 §root-reuse): after posting a card,
+`pins.add` it — the 📌 list is the live waiting-on-you queue. Each tick,
+sweep `pins.list`: for every pinned message whose `text` carries one of
+your keys, re-derive whether **anything about that artifact** still waits
+(PR gone/merged or back in work, stuck label cleared or head moved, session
+transcript fresh, issue closed/unlabelled or fix state moved) and
+`pins.remove` the resolved ones — the root itself stays in history. When a
+resolved artifact waits again, find its root by artifact key, update the
+card, re-pin, and thread the new event's detail — one thread tells the
+artifact's whole story. **Never unpin a message whose `text` carries none
+of your keys** — human pins are theirs. If pinning fails (Slack's 100-pin
+cap), log it and carry on; the root still stands in history.
 
 ```bash
 curl -s -X POST https://slack.com/api/pins.add \
   -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
   -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg t "$root_ts" '{channel:$c, timestamp:$t}')"
 # pins.remove is the same shape; pins.list is a GET with ?channel=
-```
-
-**The root message is Block Kit, title first** (LLP 0046 §root-shape): a
-`header` block `<repo-short>#<n> — <issue/PR title>` (truncate to 150 chars;
-session events: `watchdog — <session> unhealed`), a `section` with the
-answer-ready body — state, what it needs, the GitHub link, what a reply in
-this thread will do (for `stuck`: "reply here and I'll post it to the PR
-verbatim") — and a small `context` block showing the key. The **`text`
-fallback carries the machine surface**: header line, newline, the exact key.
-
-```bash
-curl -s -X POST https://slack.com/api/chat.postMessage \
-  -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
-  -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg title "$title" --arg body "$body" --arg key "$key" '{
-    channel: $c, text: ($title + "\n" + $key),
-    blocks: [
-      {type:"header", text:{type:"plain_text", text:$title}},
-      {type:"section", text:{type:"mrkdwn", text:$body}},
-      {type:"context", elements:[{type:"mrkdwn", text:$key}]}
-    ]}')"
 ```
 
 ### 2. Answer unanswered inbound
@@ -145,18 +202,21 @@ sweep doubles as **degraded mode** (LLP 0042 R5): if the `slack-bridge` tmux
 session is dead, polling is the inbound path until the supervisor respawns it;
 note the dead bridge in your reply.
 
-Resolve *which* event a thread reply answers by matching the **root message's
-key line** — never by inferring from prose. Then:
+Resolve *which* artifact a thread reply answers by matching the **root
+message's artifact key** in its `text` (pre-0049 roots: the stateful key —
+same artifact prefix) — never by inferring from prose. Whether `#<n>` is a
+PR or an issue is re-derived from `gh`/`neutral * --json`, never guessed.
+Then:
 
-- **Reply under a `stuck` root** → relay to that PR (LLP 0042 §stuck-relay):
+- **Reply under a PR's root** → relay to that PR (LLP 0042 §stuck-relay):
   post the human's text **verbatim** as a PR comment — **no marker** — followed
   by a blank line and `— relayed from Slack`. Authorship, not transport,
   decides the marker (LLP 0041 §identity-principle): it *is* the human's
   comment, and LLP 0027 keys "human reply" on marker absence, so the relay
-  re-engages the PR. Then confirm in the thread. **Verbatim or nothing**
+  re-engages a stuck PR. Then confirm in the thread. **Verbatim or nothing**
   (LLP 0042 R1): if you cannot reproduce the text exactly, say so in the thread
   instead of paraphrasing.
-- **Reply under a `fix-queued` or `issue-stuck` root** → relay to that issue
+- **Reply under an issue's root** → relay to that issue
   as a comment, same verbatim/unmarked/footer shape (LLP 0043
   §issue-reply-relay). It does **not** unstick — comment-unstick is
   PR-scoped (LLP 0027) — so your thread confirmation says the words were
@@ -261,7 +321,7 @@ no-unprompted-posts rule.
 One per event and per inbound handled, plus the repaint:
 
 ```
-mayor: push key=<key> posted|already-reported
+mayor: push key=<event key> posted|already-reported card=new|updated|unchanged
 mayor: inbound ts=<ts> answered|relayed-pr=<repo>#<n>|relayed-pane=<session>|declined
 mayor: canvas repainted
 ```

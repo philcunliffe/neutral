@@ -30,6 +30,10 @@ human's own and is never removed. Slack caps pins at 100 per channel — far
 above a healthy waiting set; overflow just degrades new events to unpinned
 roots, logged.
 
+> **Extended-by [LLP 0049](0049-minimal-artifact-cards.decision.md):** the
+> pin is artifact-grained — one root per PR/issue/session, reused across
+> recurrences; the invariant (pinned set ≡ waiting on a human) is unchanged.
+
 <a id="pin-dedupe"></a>**`pins.list` becomes the first dedupe read**, ahead
 of LLP 0042 §dedupe's bounded history scan (kept as the fallback and for
 resolved-and-unpinned keys): pins do not age out of free-plan retention, so

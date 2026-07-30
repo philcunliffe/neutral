@@ -23,6 +23,10 @@ unhealed`), a `section` with the answer-ready body (state, what it needs,
 GitHub link, what a thread reply does), and a small `context` block showing
 the key. The pin list and channel then lead with the bold title.
 
+> **Extended-by [LLP 0049](0049-minimal-artifact-cards.decision.md):** the
+> answer-ready body shrinks to a minimal card (status line, optional ⚠️
+> warning, one-sentence description); the depth moves to thread replies.
+
 <a id="key-in-text"></a>**The key moves to the `text` fallback field**:
 `text` = the header line, newline, the key line. Dedupe and thread-root
 resolution match the **exact key string anywhere in a message's `text`**

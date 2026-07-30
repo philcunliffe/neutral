@@ -65,6 +65,10 @@ new key and notifies afresh.
 > fallback field, matched as an exact string anywhere in `text` rather than
 > as the first line. Key formats unchanged.
 
+> **Extended-by [LLP 0049](0049-minimal-artifact-cards.decision.md):** roots
+> become per-artifact minimal cards; the stateful keys above move to thread
+> detail replies, and the root's `text` carries a state-free artifact key.
+
 <a id="dedupe"></a>**Dedupe is a bounded `conversations.history` scan** for
 the key (a bot token cannot use Slack search) — Slack is the ground truth for
 what has been reported; no notification ledger exists (LLP 0002). Bounded
@@ -74,6 +78,10 @@ re-announce once past the window — accepted as a periodic nag.
 > **Extended-by [LLP 0044](0044-pinned-event-roots.decision.md):** `pins.list`
 > is now the first dedupe read (pins don't age out); the history scan remains
 > the fallback and covers resolved-and-unpinned keys.
+
+> **Extended-by [LLP 0049](0049-minimal-artifact-cards.decision.md):** dedupe
+> is two-level — the artifact key finds the root, event keys dedupe detail
+> replies within the root's thread.
 
 <a id="stuck-relay"></a>**Stuck-reply relay**: a thread reply under a `stuck`
 root posts to that PR as a comment — the human's text verbatim, **no

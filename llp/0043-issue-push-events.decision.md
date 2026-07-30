@@ -45,6 +45,10 @@ within the history window, and a re-announcement past the window remains
 the accepted periodic nag. `issue-stuck` (not `stuck`) keeps issue keys
 disjoint from PR keys, since issues and PRs share GitHub's number space.
 
+> **Extended-by [LLP 0049](0049-minimal-artifact-cards.decision.md):** these
+> keys now live on thread detail replies; the root carries a state-free
+> artifact key, and `fix-queued`/`issue-stuck` render as the card's status.
+
 <a id="issue-reply-relay"></a>**A thread reply under an issue root relays
 as an issue comment** — verbatim, unmarked, `— relayed from Slack` footer:
 the LLP 0041 §identity-principle applies to authorship regardless of

@@ -366,6 +366,29 @@ alongside the rung action below; it is **not** itself a rung and never blocks on
 PRs keep the verdict-label mechanism (`approve` / `request-changes`) unchanged. Create the
 `neutral:approved` label in the target repo once if it does not exist (`gh label create`).
 
+**The merge-notes block on own PRs (LLP 0050).** Merge complications must be visible
+where the merge button is — the PR description — not only in Slack. For every own
+**change-set** PR each tick, alongside the label sync — **mechanical, no agent,
+idempotent, not a rung**: derive the change set's unmerged `Depends-on:` predecessors
+(`changeSetMergedToTarget` false), map each to its open PR number via
+`gh pr list --head integration/<pred>` (fall back to naming the branch). If any exist,
+the body must **begin** with a marker-fenced block, then a blank line, then the
+untouched rest (the `Change-Set: <slug>` trailer stays at the end):
+
+```
+<!-- neutral-merge-notes -->
+> ⚠️ **Merge notes**
+> - Merge <owner/repo>#<n> (`integration/<pred>`) first — this change set depends
+>   on it and is branched from its history.
+<!-- /neutral-merge-notes -->
+```
+
+If none exist, strip the whole block, markers included. Read the current body
+(`gh pr view N --json body`), compute the correct body, and `gh pr edit N --body`
+**only when they differ**. The block is a rendered view of ground truth, never a
+source — nothing (loop or mayor) reads it back (LLP 0050 §view-not-source).
+`fix/issue-*` PRs have no predecessors and get no block.
+
 **The stuck report (LLP 0026).** *Whatever* sets `neutral:stuck` on a PR — the triage
 rung, a conflict back-off, wave-loop exhaustion — must post the report comment **in
 the same act** as the label (`gh pr comment N --body …`). It is one full comment,
