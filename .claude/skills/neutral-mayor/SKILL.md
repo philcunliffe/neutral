@@ -209,6 +209,23 @@ kept tight:
 4. **How to use me** — 3–4 line legend: thread reply = verbatim relay,
    channel message = conversation, event key formats.
 
+**Every PR or issue the canvas mentions — in any section — carries two
+links: its GitHub page, and its Slack thread whenever an event root exists
+for it.** You already hold the root `ts` values from this tick's pins sweep
+and history dedupe scan (matching keys is the same search either way — this
+adds no canvas read-back); turn each into a permalink:
+
+```bash
+curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  "https://slack.com/api/chat.getPermalink?channel=$SLACK_CHANNEL_ID&message_ts=$root_ts" \
+  | jq -r '.permalink'
+```
+
+Render both as canvas markdown links, e.g.
+`[hypaware#427](…github…) · [thread](…permalink…)`. A PR/issue with no
+event root yet (pure in-flight, never announced) gets the GitHub link
+alone — never fabricate a thread link.
+
 ```bash
 # find the channel canvas (groups:read), create once if absent
 cid=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
