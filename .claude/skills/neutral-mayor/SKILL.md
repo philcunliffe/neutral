@@ -196,8 +196,10 @@ curl -s -X POST https://slack.com/api/pins.add \
 Inbound normally arrives mid-turn as bridge-injected pane messages framed
 `[slack <user> ts=<ts> thread=<root|none>] <text>` (LLP 0042 §inbound-framing).
 Each tick, also sweep channel history for recent messages from allowlisted
-users with **no mayor reply after them** — the thread (via
-`conversations.replies`) for threaded messages, the channel for root ones. This
+users with **no mayor reply after them** — always judged in the message's
+thread (via `conversations.replies`): for a threaded message its enclosing
+thread, for a channel-root message its own thread, since answers are
+threaded on the question (LLP 0053), never posted to the channel. This
 sweep doubles as **degraded mode** (LLP 0042 R5): if the `slack-bridge` tmux
 session is dead, polling is the inbound path until the supervisor respawns it;
 note the dead bridge in your reply.
@@ -234,7 +236,10 @@ Then:
 - **A question** → answer from ground truth re-derived *now* — `neutral prs
   --json` / `neutral backlog --json` / `neutral issues --json` in the clones,
   `gh`, transcripts, `tmux capture-pane` — never from memory of a past tick.
-  Reply in the same thread (or channel for root messages).
+  Reply in the same thread; a channel-root question gets its answer as a
+  threaded reply on the question message (`thread_ts` = its `ts`), never a
+  new channel message, and never `reply_broadcast` — the channel stays
+  event cards plus the humans' own messages (LLP 0053).
 
   **Panes contain harness prefills — ignore them.** Text sitting in a
   Claude Code input box after the `❯` prompt (e.g. `merge #427`,
