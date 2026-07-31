@@ -44,6 +44,7 @@ a button.
 ## Consequences
 
 - Merge notifications scan in one glance in channel (the reply still
-  `reply_broadcast`s) and in thread.
+  `reply_broadcast`s) and in thread. Superseded-by: LLP 0056 (no
+  broadcast; the one-line shape stands).
 - A human wanting the why of a warning asks in the thread and gets a
   ground-truth answer at that moment, not a stale brief.

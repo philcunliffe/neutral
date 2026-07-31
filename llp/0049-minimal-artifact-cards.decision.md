@@ -52,7 +52,7 @@ its event key, and **per-event dedupe matches event keys in the root's
 `conversations.replies`** (bounded history stays the fallback). A new event
 on an artifact that already has a root is a card update plus a detail reply
 posted with `reply_broadcast: true` — the channel still gets pushed, without
-a second root.
+a second root. Superseded-by: LLP 0056 (thread replies no longer broadcast).
 
 <a id="card-update"></a>**The card is kept current by `chat.update`,
 replaced whole.** Whenever re-derived state differs from what the card

@@ -154,8 +154,11 @@ reply under the root — the answer-ready body LLP 0046 used to put in the
 root: state, what it needs, the GitHub link, what a reply in this thread
 will do (for `stuck`: "reply here and I'll post it to the PR verbatim") —
 with the **event key on its last line**. Post it with `thread_ts` =
-root's ts and **`reply_broadcast: true`**, so a new event on an old root
-still pushes to the channel without minting a second root.
+root's ts and **never `reply_broadcast`** (LLP 0056, superseding 0049's
+broadcast clause): thread replies stay out of the channel — the channel
+is root cards and the humans' own messages, nothing else. A recurring
+event's push is the card update plus the re-pin; thread followers get
+Slack's thread notification.
 
 **Exception — `ready-to-merge` is one line** (LLP 0054). The mergeable
 case needs a click, not a brief; its detail reply is exactly one content
