@@ -102,6 +102,11 @@ The git-native `bd ready`, split into a declared part and a derived part:
   holds; a squash merge would discard parentage and break the predicate, so squash
   is used **only** at the final `integration/<slug> → target` PR.
 
+Extended-by: 0033 — done also requires the tip to be off the integration
+first-parent chain (an empty branch is a trivial ancestor).
+Extended-by: 0051 — a task branch whose ref no longer resolves is derived from
+the integration merge commit that names it, not read as not-done.
+
 ```
 done(t)  = branch(t) is a verified ancestor of the integration branch
 ready    = { t : not done(t) and deps(t) subset of done }

@@ -36,6 +36,11 @@ sits ON the chain and now reads not-done. `doneSetFromGit` (src/git.js)
 computes the chain once per change set (`git rev-list --first-parent`) and
 applies both checks.
 
+Extended-by: 0051 — when the branch ref does not resolve at all (GitHub's
+auto-delete-on-merge), the same off-the-chain check is applied to the second
+parent of the integration merge commit that names the branch, instead of
+reading the missing ref as not-done.
+
 <a id="branch-birth"></a>**An implementer never creates the task branch before
 its first work commit.** The implement-changeset workflow's worker protocol
 works on a detached worktree (fresh: detached at `origin/integration/<slug>`;

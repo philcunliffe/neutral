@@ -36,6 +36,15 @@ export interface CoverageResult {
   designs: Llp[]
 }
 
+/** One merge commit on a branch's first-parent chain (`git log --first-parent --merges`). */
+export interface MergeCommit {
+  sha: string
+  /** Full parent shas, in order; `parents[1]` is the merged-in tip. */
+  parents: string[]
+  /** The commit subject — the only surviving record of a deleted head ref's name. */
+  subject: string
+}
+
 export interface Task {
   id: string
   branch: string

@@ -1,22 +1,24 @@
 // @ts-check
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isAncestor, doneSetFromGit, branchExists, resolveRef, changeSetMergedToTarget, readLlpsFromRef, readCodeRefsFromRef } from '../src/git.js'
+import { isAncestor, doneSetFromGit, branchExists, resolveRef, changeSetMergedToTarget, readLlpsFromRef, readCodeRefsFromRef, firstParentMerges, subjectNamesBranch } from '../src/git.js'
 import { observe } from '../src/state.js'
 
 /**
  * A fake `git`/`gh` runner. `ancestors[a]` lists refs that `a` is an ancestor of;
  * `exist` lists refs that resolve; `shas[ref]` is the sha a resolving ref points at
  * (default 'deadbeef'); `firstParent[ref]` is its `rev-list --first-parent` sha list
- * (absent => empty chain); `tree[ref]` is its `ls-tree` listing; `content[ref:path]`
+ * (absent => empty chain); `merges[ref]` is its first-parent merge log
+ * as `[sha, parents, subject]` triples, newest first (absent => none);
+ * `tree[ref]` is its `ls-tree` listing; `content[ref:path]`
  * is its `git show` body (absent => exit 128, which showFile maps to null); `grep[ref]`
  * is its `git grep` output (absent => exit 1, mirroring git grep's no-match exit);
  * `defaultBranch` is what `gh repo view` reports.
  * Mirrors real exit codes: merge-base/rev-parse exit 1 on the negative case.
- * @param {{ancestors?: Record<string,string[]>, exist?: string[], shas?: Record<string,string>, firstParent?: Record<string,string[]>, tree?: Record<string,string[]>, content?: Record<string,string>, grep?: Record<string,string>, defaultBranch?: string}} cfg
+ * @param {{ancestors?: Record<string,string[]>, exist?: string[], shas?: Record<string,string>, firstParent?: Record<string,string[]>, merges?: Record<string,[string,string,string][]>, tree?: Record<string,string[]>, content?: Record<string,string>, grep?: Record<string,string>, defaultBranch?: string}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeGit({ ancestors = {}, exist = [], shas = {}, firstParent = {}, tree = {}, content = {}, grep = {}, defaultBranch }) {
+function fakeGit({ ancestors = {}, exist = [], shas = {}, firstParent = {}, merges = {}, tree = {}, content = {}, grep = {}, defaultBranch }) {
   return async (cmd, args) => {
     if (cmd === 'gh') {
       if (defaultBranch !== undefined) return defaultBranch + '\n'
@@ -29,6 +31,11 @@ function fakeGit({ ancestors = {}, exist = [], shas = {}, firstParent = {}, tree
     }
     if (args[0] === 'rev-list' && args[1] === '--first-parent') {
       return (firstParent[args[2]] || []).join('\n') + '\n'
+    }
+    if (args[0] === 'log' && args[1] === '--first-parent') {
+      // Real `git log` emits the record separator BETWEEN records and a trailing
+      // newline after each, so the parser meets leading whitespace mid-stream.
+      return (merges[args[args.length - 1]] || []).map(r => r.join('\x1f') + '\x1e\n').join('')
     }
     if (args[0] === 'merge-base') {
       const a = args[2], b = args[3]
@@ -100,6 +107,86 @@ test('doneSetFromGit: an empty branch on the first-parent chain is NOT done (LLP
   })
   const done = await doneSetFromGit('/r', 'integration', tasks, exec)
   assert.deepEqual([...done], ['T1'])
+})
+
+test('subjectNamesBranch matches both merge shapes at path boundaries (LLP 0051)', () => {
+  const b = 'task/openclaw-full-capture/T1'
+  // the serial merger's --no-ff merge, and GitHub's merge-commit PR merge
+  assert.equal(subjectNamesBranch(`Merge remote-tracking branch 'origin/${b}'`, b), true)
+  assert.equal(subjectNamesBranch(`Merge pull request #503 from hyparam/${b}`, b), true)
+  assert.equal(subjectNamesBranch(`Merge branch '${b}' into integration/openclaw-full-capture`, b), true)
+  // T1 must not match inside T10 — the bug this boundary exists to prevent
+  assert.equal(subjectNamesBranch(`Merge pull request #524 from hyparam/${b}0`, b), false)
+  assert.equal(subjectNamesBranch(`Merge branch 'hotfix-${b}'`, b), false)
+  assert.equal(subjectNamesBranch('Merge pull request #510 from hyparam/integration/openclaw-full-capture', b), false)
+})
+
+test('firstParentMerges parses the record-separated merge log', async () => {
+  const exec = fakeGit({
+    merges: {
+      integration: [
+        ['m2', 'aaa bbb', "Merge pull request #2 from o/task/s/T2"],
+        ['m1', 'ccc ddd', "Merge remote-tracking branch 'origin/task/s/T1'"]
+      ]
+    }
+  })
+  assert.deepEqual(await firstParentMerges('/r', 'integration', exec), [
+    { sha: 'm2', parents: ['aaa', 'bbb'], subject: 'Merge pull request #2 from o/task/s/T2' },
+    { sha: 'm1', parents: ['ccc', 'ddd'], subject: "Merge remote-tracking branch 'origin/task/s/T1'" }
+  ])
+  assert.deepEqual(await firstParentMerges('/r', 'integration', fakeGit({})), [])
+})
+
+test('doneSetFromGit: a deleted task ref falls back to the merge commit (LLP 0051)', async () => {
+  // The hypaware openclaw-full-capture incident: GitHub's auto-delete-on-merge
+  // erased every task/* ref the moment its PR merged, so ten landed tasks
+  // re-derived as unstarted. The merge commits still name the branches.
+  /** @type {import('../src/types.d.ts').Task[]} */
+  const tasks = [
+    { id: 'T1', branch: 'task/s/T1', deps: [] },   // ref deleted; genuinely merged
+    { id: 'T2', branch: 'task/s/T2', deps: ['T1'] }, // ref deleted; never merged
+    { id: 'T10', branch: 'task/s/T10', deps: [] }  // ref deleted; merged (must not steal T1's merge)
+  ]
+  const exec = fakeGit({
+    exist: ['integration'],
+    shas: { integration: 'head' },
+    firstParent: { integration: ['head', 'm10', 'm1', 'base'] },
+    merges: {
+      integration: [
+        ['m10', 'm1 w10', 'Merge pull request #524 from o/task/s/T10'],
+        ['m1', 'base w1', "Merge remote-tracking branch 'origin/task/s/T1'"]
+      ]
+    }
+  })
+  assert.deepEqual([...await doneSetFromGit('/r', 'integration', tasks, exec)].sort(), ['T1', 'T10'])
+})
+
+test('doneSetFromGit: the deleted-ref fallback keeps the empty-branch hole closed (LLP 0033)', async () => {
+  // A branch born at the integration head, merged --no-ff, then auto-deleted:
+  // its second parent is ON the first-parent chain, so it still reads not-done.
+  /** @type {import('../src/types.d.ts').Task[]} */
+  const tasks = [{ id: 'T1', branch: 'task/s/T1', deps: [] }]
+  const exec = fakeGit({
+    exist: ['integration'],
+    shas: { integration: 'head' },
+    firstParent: { integration: ['head', 'm1', 'base'] },
+    merges: { integration: [['m1', 'base base', "Merge branch 'task/s/T1'"]] }
+  })
+  assert.deepEqual([...await doneSetFromGit('/r', 'integration', tasks, exec)], [])
+})
+
+test('doneSetFromGit: a resolvable task ref never consults the merge log', async () => {
+  /** @type {import('../src/types.d.ts').Task[]} */
+  const tasks = [{ id: 'T1', branch: 'task/s/T1', deps: [] }]
+  // No `merges` entry at all: if the fallback fired on a live ref, the branch
+  // would read not-done here instead of done.
+  const exec = fakeGit({
+    exist: ['integration', 'task/s/T1'],
+    ancestors: { 'task/s/T1': ['integration'] },
+    shas: { integration: 'head', 'task/s/T1': 'w1' },
+    firstParent: { integration: ['head', 'base'] }
+  })
+  assert.deepEqual([...await doneSetFromGit('/r', 'integration', tasks, exec)], ['T1'])
 })
 
 test('doneSetFromGit returns empty when the integration branch does not exist yet', async () => {

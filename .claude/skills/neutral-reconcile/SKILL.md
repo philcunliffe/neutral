@@ -40,8 +40,11 @@ a *hint to verify*:
 - **Merged?** `git merge-base --is-ancestor <branch> <integration>` — a verified
   ancestor whose tip is **off the integration first-parent chain** (LLP 0033): an
   empty branch created at the integration head is a trivial ancestor with zero work
-  and must NOT read as done. `neutral ready` applies both checks; trust it over a
-  hand-run `--is-ancestor`.
+  and must NOT read as done. If the task ref is **gone** (GitHub auto-delete-on-merge
+  erases it the instant the PR merges), that is not "not done": the integration
+  branch's own merge commit names the branch and carries the tip as its second
+  parent (LLP 0051). `neutral ready` applies all of this; trust it over a hand-run
+  `--is-ancestor`, which reports a false "not merged" on a deleted ref.
 - **Covered?** a real `@ref LLP NNNN` in a design (or code), not a "designed" flag.
 - **Mergeable? / Green?** GitHub's *own* computation, read against the **current head
   SHA** (`gh pr view --json mergeable,statusCheckRollup`). A green check from a prior

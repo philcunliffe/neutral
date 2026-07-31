@@ -12,7 +12,8 @@ export { readyTasks, topoOrder } from './ready.js'
 export { parseTasks } from './tasks.js'
 export {
   isAncestor, doneSetFromGit, branchExists, resolveRef,
-  defaultBranch, integrationBranches, branchesWithPrefix, changeSetMergedToTarget, showFile
+  defaultBranch, integrationBranches, branchesWithPrefix, changeSetMergedToTarget, showFile,
+  firstParentMerges, subjectNamesBranch
 } from './git.js'
 export { observe } from './state.js'
 export { inFlightCoveredRefs } from './inflight.js'

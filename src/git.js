@@ -8,7 +8,7 @@ import { parseLlp } from './llp.js'
 import { extractRefs } from './refs.js'
 import { DEFAULT_CONFIG } from './config.js'
 
-/** @import { Task, Llp, NeutralConfig } from './types.d.ts' */
+/** @import { Task, Llp, NeutralConfig, MergeCommit } from './types.d.ts' */
 
 /**
  * Run a command, resolve stdout. Injectable so deterministic tests never touch a
@@ -112,6 +112,45 @@ export async function firstParentChain(repo, ref, exec = run) {
 }
 
 /**
+ * The merge commits on a ref's first-parent chain — the integration branch's own
+ * record of what it absorbed, one entry per merge, newest first. `%x1f` separates
+ * the fields and `%x1e` the records, so a subject containing whitespace or
+ * newlines cannot be mistaken for a field boundary.
+ * @param {string} repo
+ * @param {string} ref
+ * @param {typeof run} [exec]
+ * @returns {Promise<MergeCommit[]>}
+ */
+export async function firstParentMerges(repo, ref, exec = run) {
+  const out = await exec('git', ['log', '--first-parent', '--merges', '--format=%H%x1f%P%x1f%s%x1e', ref], repo)
+  /** @type {MergeCommit[]} */
+  const merges = []
+  for (const rec of out.split('\x1e')) {
+    const [sha, parents, subject] = rec.replace(/^\s+/, '').split('\x1f')
+    if (!sha || parents === undefined) continue
+    merges.push({ sha, parents: parents.trim().split(/\s+/).filter(Boolean), subject: (subject || '').trim() })
+  }
+  return merges
+}
+
+/**
+ * True iff a merge-commit subject names `branch`. Both merge shapes neutral sees
+ * carry the name — `Merge remote-tracking branch 'origin/task/<slug>/<id>'` from
+ * the serial merger and `Merge pull request #N from <owner>/task/<slug>/<id>`
+ * from a GitHub merge-commit PR merge — so the name may be preceded by a path
+ * separator or a quote, but never by a name character. The trailing lookahead is
+ * what keeps `task/<slug>/T1` from matching inside `task/<slug>/T10`.
+ * @ref LLP 0051#merge-evidence [implements] — the merge subject preserves the erased ref's name
+ * @param {string} subject
+ * @param {string} branch
+ * @returns {boolean}
+ */
+export function subjectNamesBranch(subject, branch) {
+  const esc = branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[^\\w.-])${esc}(?![\\w./-])`).test(subject)
+}
+
+/**
  * Derive the done-set for a change set's tasks from git ground truth: a task is
  * done iff its branch tip is a verified ancestor of the integration branch AND
  * that tip is off the integration branch's first-parent chain. Ancestry alone is
@@ -121,9 +160,17 @@ export async function firstParentChain(repo, ref, exec = run) {
  * merged tip is only ever a merge commit's second parent — strictly off the
  * chain — while an empty branch sits on it. Refs are resolved against
  * `origin/*` first (where the implementer pushes). A missing integration branch
- * means "nothing done yet"; a missing task branch means "that task is not
- * done" — neither is an error.
+ * means "nothing done yet".
+ *
+ * A missing TASK branch does not mean "not done": GitHub's auto-delete-on-merge
+ * erases the head ref the instant the task PR merges, and a whole change set
+ * re-derived as unstarted that way (LLP 0051). When the ref is gone the merge is
+ * still recorded — the integration branch's own merge commit names the branch and
+ * carries the task tip as its second parent — so the derivation reads that
+ * instead, applying the same off-the-chain check to the second parent. Only when
+ * there is no such merge either does the task read not-done.
  * @ref LLP 0033#off-first-parent [implements] — done = ancestor with work parentage
+ * @ref LLP 0051#merge-evidence [implements] — a deleted ref falls back to the merge commit
  * @param {string} repo
  * @param {string} integration
  * @param {Task[]} tasks
@@ -136,12 +183,22 @@ export async function doneSetFromGit(repo, integration, tasks, exec = run) {
   const integ = await resolveRef(repo, integration, exec)
   if (!integ) return done
   const spine = await firstParentChain(repo, integ, exec)
+  // Read the merge log at most once, and only if some ref actually went missing.
+  /** @type {MergeCommit[] | null} */
+  let merges = null
   for (const t of tasks) {
     const br = await resolveRef(repo, t.branch, exec)
-    if (!br) continue
-    if (!(await isAncestor(repo, br, integ, exec))) continue
-    const tip = await commitSha(repo, br, exec)
-    if (!tip || spine.has(tip)) continue
+    if (br) {
+      if (!(await isAncestor(repo, br, integ, exec))) continue
+      const tip = await commitSha(repo, br, exec)
+      if (!tip || spine.has(tip)) continue
+      done.add(t.id)
+      continue
+    }
+    if (merges === null) merges = await firstParentMerges(repo, integ, exec)
+    const m = merges.find(m => subjectNamesBranch(m.subject, t.branch))
+    // parents[1] is the merged-in tip; on the spine it is an empty branch (LLP 0033).
+    if (!m || m.parents.length < 2 || spine.has(m.parents[1])) continue
     done.add(t.id)
   }
   return done
