@@ -157,6 +157,16 @@ with the **event key on its last line**. Post it with `thread_ts` =
 root's ts and **`reply_broadcast: true`**, so a new event on an old root
 still pushes to the channel without minting a second root.
 
+**Exception — `ready-to-merge` is one line** (LLP 0054). The mergeable
+case needs a click, not a brief; its detail reply is exactly one content
+line plus the key line, no PR description, no diff stats, no merge-order
+prose (the card's ⚠️ warning already carries that, LLP 0050):
+
+```
+🟢 <github-link|repo#n> ready to merge at <short-sha> — reply here to comment on the PR.
+[neutral <owner/repo>#<n> ready-to-merge@<sha>]
+```
+
 **Keep the card current by `chat.update`, replaced whole** (LLP 0049
 §card-update): whenever the re-derived status, warning, or description
 differs from what the card should show, rebuild the full block list and
