@@ -25,6 +25,7 @@ const PR_AT_REST = 'held'
  *
  *   - `neutral backlog` is empty (no uncovered request LLP), AND
  *   - `neutral implementable` is empty (no Accepted design owed an implementation), AND
+ *   - no change set is owed an action (plan / implement / create-pr — LLP 0052), AND
  *   - every in-scope PR's action is `held` (terminal), AND
  *   - no issue is `needs-fix`.
  *
@@ -32,11 +33,12 @@ const PR_AT_REST = 'held'
  * not in flight. A stuck PR at rest means its report is posted and no human has replied
  * (action `held`, LLP 0026/0027); a pending `stuck-report` or `unstick` is one tick of
  * real work and blocks like any other non-`held` action.
- * @param {{ backlog?: Array<{number?: number, title?: string}>, implementable?: Array<{number: number, slug?: string}>, prs?: Array<{number: number, action: string}>, issues?: Array<{number: number, state: string}> }} obs
+ * @param {{ backlog?: Array<{number?: number, title?: string}>, implementable?: Array<{number: number, slug?: string}>, changesets?: Array<{slug: string, action: string | null, reason?: string}>, prs?: Array<{number: number, action: string}>, issues?: Array<{number: number, state: string}> }} obs
  * @returns {IdleState}
  * @ref LLP 0013#trigger [implements]
+ * @ref LLP 0052#idle-extension [implements] — a change-set gap blocks idle
  */
-export function idleState({ backlog = [], implementable = [], prs = [], issues = [] } = {}) {
+export function idleState({ backlog = [], implementable = [], changesets = [], prs = [], issues = [] } = {}) {
   /** @type {IdleBlocker[]} */
   const blockers = []
   for (const r of backlog) {
@@ -44,6 +46,11 @@ export function idleState({ backlog = [], implementable = [], prs = [], issues =
   }
   for (const d of implementable) {
     blockers.push({ family: 'pipeline', target: `llp#${d.number}`, reason: 'accepted design merged to target — needs implementation' })
+  }
+  for (const c of changesets) {
+    if (c.action !== null) {
+      blockers.push({ family: 'pipeline', target: `changeset/${c.slug}`, reason: `action=${c.action}${c.reason ? ' — ' + c.reason : ''}` })
+    }
   }
   for (const p of prs) {
     if (p.action !== PR_AT_REST) {

@@ -14,6 +14,7 @@ import { run } from '../git.js'
 import { loadConfig } from '../config.js'
 import { collectBacklog } from './backlog.js'
 import { collectImplementable } from '../implementable.js'
+import { collectChangeSets } from '../changesets.js'
 import { collectPRs } from './prs.js'
 import { collectIssues } from './issues.js'
 import { idleState } from '../idle.js'
@@ -46,7 +47,10 @@ export async function collectIdle(repo, exec = run, readCtx = readContextSize, {
     collectIssues(repo, exec),
     listDisposedAutophagyPRs(repo, exec)
   ])
-  const { idle, blockers } = idleState({ backlog, implementable, prs, issues })
+  // After the PR observation: `create-pr` vs "rollup in flight" needs the open heads.
+  // @ref LLP 0052#idle-extension [implements] — the idle predicate sees change-set gaps
+  const changesets = await collectChangeSets(repo, exec, { openHeads: new Set(prs.map(p => p.head)) })
+  const { idle, blockers } = idleState({ backlog, implementable, changesets, prs, issues })
   const contextSize = readCtx()
   const recycle = idle && contextSize !== null && contextSize > threshold
   const { initiative: member, members } = selectInitiative({ openPRs: prs, disposed, config, now, damped })

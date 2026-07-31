@@ -12,12 +12,14 @@ import { prsCommand } from '../src/commands/prs.js'
 import { issuesCommand } from '../src/commands/issues.js'
 import { idleCommand } from '../src/commands/idle.js'
 import { startCommand } from '../src/commands/start.js'
+import { observeCommand } from '../src/commands/observe.js'
 
 const USAGE = `neutral — declarative reconcilers for the LLP -> PR pipeline
 
 usage:
   neutral start                  launch the orchestrator loop in its tmux pane (LLP 0013)
   neutral init                   scaffold .neutral/ config + baseline; report the backlog
+  neutral observe [--json]       EVERY gap across both families in one report (LLP 0052)
   neutral status [--json]        corpus by stage, coverage gap, designs
   neutral coverage [--json]      working-tree coverage as an exit code (0 covered, 1 not)
   neutral backlog [--json]       requests needing a design (excl. in-flight + baselined)
@@ -41,6 +43,7 @@ async function main(argv) {
   switch (cmd) {
     case 'start': return startCommand(repo, rest)
     case 'init': return initCommand(repo, rest)
+    case 'observe': return observeCommand(repo, rest)
     case 'status': return statusCommand(repo, rest)
     case 'coverage': return coverageCommand(repo, rest)
     case 'backlog': return backlogCommand(repo, rest)

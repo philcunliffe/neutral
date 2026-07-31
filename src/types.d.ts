@@ -64,6 +64,26 @@ export interface ReadyResult {
   done: Task[]
 }
 
+/**
+ * One `integration/*` change set as observed from git refs, with the gap action the
+ * tick owes it — the fourth pipeline-family observation (LLP 0052).
+ */
+export interface ChangeSetState {
+  slug: string
+  /** The branch short name, `integration/<slug>`. */
+  integration: string
+  /** Repo-relative path of the plan LLP on the branch, or null when none parses. */
+  plan: string | null
+  /** Design Active on target (LLP 0016) — nothing owed, branch merely outlives its merge. */
+  shipped: boolean
+  /** The one gap action owed, or null when nothing is owed this tick. */
+  action: 'plan' | 'implement' | 'create-pr' | null
+  reason: string
+  ready: Task[]
+  blocked: Task[]
+  done: Task[]
+}
+
 export interface NeutralConfig {
   /** Directory holding the LLP corpus (relative to repo root). */
   llpDir: string
@@ -203,7 +223,7 @@ export interface RungDecision {
 export interface IdleBlocker {
   /** pipeline | maintenance. */
   family: string
-  /** The gap's target — `llp#N` | `pr#N` | `issue#N`. */
+  /** The gap's target — `llp#N` | `changeset/<slug>` | `pr#N` | `issue#N`. */
   target: string
   reason: string
 }

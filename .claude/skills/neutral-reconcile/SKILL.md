@@ -66,24 +66,30 @@ work, the tick verifies it.
    — every git mutation this tick happens in a self-created worktree (LLP 0012), so a
    dirty working tree or a human editing the repo never blocks the loop.
 2. **Observe every gap** (the loop's eyes — all CLI, no LLM judgement):
+   **`neutral observe --json`** — the whole observation step as ONE command (LLP
+   0052); exit 0 ⇔ neutral state, and its `gaps` list is authoritative — never
+   re-derive a family by hand, and never treat "the easy commands were empty" as
+   observed. The report carries both families:
    - **Pipeline family**
-     - `neutral backlog --json` → live requests needing a design (Designer).
-     - `neutral implementable --json` → `Accepted` designs merged to the target with
+     - `backlog` → live requests needing a design (Designer).
+     - `implementable` → `Accepted` designs merged to the target with
        no `integration/<slug>` yet — **design-first** work owed an implementation
        (Impl-designer's *seed* path; LLP 0016). A human did the Designer step by hand.
-     - a `design` LLP without a `plan` (Impl-designer's *plan* path): neutral-minted
-       designs on `integration/*` branches, plus any change set just seeded from an
-       `implementable` design.
-     - change sets with a `plan` but unmerged tasks (`neutral ready <slug> --json`).
+     - `changesets` → every `integration/*` branch with its ready/blocked/done
+       queues (plan read from the branch's blob — no worktree needed) and the one
+       owed action: `plan` (Impl-designer's *plan* path), `implement` (unblocked
+       tasks — dispatch the wave), `create-pr` (all tasks merged, no PR), or
+       `null` (nothing owed: blocked on in-flight work, PR open, or shipped).
+       `neutral ready <slug> --json` remains the deep view of one change set.
    - **Maintenance family**
-     - `neutral prs --json` → every in-scope open PR (own `integration/*` and
+     - `prs` → every in-scope open PR (own `integration/*` and
        `fix/issue-*`) with the **single rung action** `reconcilePR` should take this
        tick (`merge-base | resolve-conflict | fix-ci | review | triage | ready-hold |
        stuck-report | unstick | wait | held`). The CLI decides the rung from observed
        state — you act, you do not re-decide. A non-zero `guidance` field means the
        thread carries human replies to a stuck report (LLP 0027) — feed them to any
        worker you dispatch for that PR.
-     - `neutral issues --json` → every open `neutral:fix` issue with its fix-attempt
+     - `issues` → every open `neutral:fix` issue with its fix-attempt
        state (`needs-fix | attempt-exists | stuck`).
 3. **Fan out** every **branch-disjoint** gap concurrently (LLP 0010) — implement a
    change set, resolve a conflict on PR X, fix CI on PR Y, review PR Z, mint a
@@ -674,10 +680,7 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
 
 ```sh
 git fetch --prune
-neutral backlog --json        # pipeline: any request needing a design?
-neutral implementable --json  # pipeline: any Accepted design merged to target, owed code? (LLP 0016)
-neutral prs --json            # maintenance: each in-scope PR's next rung action
-neutral issues --json         # maintenance: each neutral:fix issue's state
+neutral observe --json        # EVERY gap, both families, one report (LLP 0052); exit 0 ⇔ neutral
 # then fan out the branch-disjoint workers above and re-derive from git.
 neutral idle --json --damped <ids>  # end of tick: act on `initiative` — recycle the pane (LLP
                            # 0013), run the least-recently-run eligible member (LLP 0047), or
