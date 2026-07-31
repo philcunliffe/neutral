@@ -302,10 +302,16 @@ event root yet (pure in-flight, never announced) gets the GitHub link
 alone — never fabricate a thread link.
 
 ```bash
-# find the channel canvas (groups:read), create once if absent
+# find the channel canvas (groups:read) — properties.canvas when present,
+# else the first canvas-type tab (LLP 0055: the real channel exposes
+# canvases only in properties.tabs). Create ONLY if both are empty:
+# conversations.canvases.create is NOT idempotent — on a channel that
+# already has a canvas it silently mints another tab.
 cid=$(curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
   "https://slack.com/api/conversations.info?channel=$SLACK_CHANNEL_ID" \
-  | jq -r '.channel.properties.canvas.file_id // empty')
+  | jq -r '.channel.properties.canvas.file_id
+           // (.channel.properties.tabs // [] | map(select(.type == "canvas"))[0].data.file_id)
+           // empty')
 [ -z "$cid" ] && cid=$(curl -s -X POST https://slack.com/api/conversations.canvases.create \
   -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-type: application/json' \
   -d "$(jq -n --arg c "$SLACK_CHANNEL_ID" '{channel_id:$c}')" | jq -r '.canvas_id')

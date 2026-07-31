@@ -36,7 +36,8 @@ visibly old canvas, not a wrong-looking fresh one.
 
 - Scopes: `canvases:write` (+ `groups:read` to look up the existing channel
   canvas id via `conversations.info`). One-time `conversations.canvases.create`
-  if the channel has none.
+  if the channel has none. Extended-by: LLP 0055 (the id lookup must scan
+  `properties.tabs`; create is not idempotent).
 
 ## Consequences
 
