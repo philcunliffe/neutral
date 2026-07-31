@@ -273,3 +273,35 @@ export interface IssueFixState {
   /** how an attempt was found: `branch:fix/issue-N` | `pr:#M` | `label:neutral:stuck`. */
   via?: string
 }
+
+/** Fleet-silence verdict — one classifySilence read (LLP 0057 §fleet-silence). */
+export interface SilenceVerdict {
+  silent: boolean
+  /** Epoch ms of the fleet's last sign of life: max(newest usage event, boot). */
+  sinceMs: number
+  /** Minutes since that sign of life. */
+  quietMin: number
+}
+
+/** The sentinel's in-process incident memory (Slack history is the durable dedupe). */
+export interface SentinelIncident {
+  sinceMs: number
+  /** ts of the Slack root message this incident threads under. */
+  rootTs: string
+  lastNagMs: number
+}
+
+/** What one sentinel pass should do, from the pure state machine (LLP 0057). */
+export type SentinelAction =
+  | { action: 'none' }
+  | { action: 'open', sinceMs: number }
+  | { action: 'nag' }
+  | { action: 'recover', recoveredMs: number }
+  | { action: 'reopen', sinceMs: number, recoveredMs: number }
+
+/** Alert decoration probes; null = probe itself failed / unavailable (LLP 0057 §notify-direct). */
+export interface SentinelProbes {
+  api: boolean | null
+  gateway: boolean | null
+  sessions: string[] | null
+}

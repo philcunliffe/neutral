@@ -263,6 +263,40 @@ if [ "$MAYOR" = "1" ]; then
   fi
 fi
 
+# --- outage sentinel (LLP 0057) -----------------------------------------------
+# The deterministic last line of defense: every other voice here (loops,
+# watchdog, mayor) is a Claude session, so a fleet-wide failure — an API
+# outage, a dead gateway attach, a revoked credential — silences the alarm
+# together with the workers. The sentinel has no model on its path: it reads
+# transcript tails for the fleet's newest completed model turn and posts to
+# Slack directly (chat.postMessage) when the whole fleet goes silent. It
+# notifies only — healing stays with the watchdog (LLP 0034). Default: on
+# whenever the Slack outbound surface exists, independent of NEUTRAL_MAYOR.
+SENTINEL_SESSION="outage-sentinel"
+SENTINEL_CMD="node /opt/neutral/docker/outage-sentinel.js"
+if [ -n "${NEUTRAL_SENTINEL:-}" ]; then
+  SENTINEL="$NEUTRAL_SENTINEL"
+elif [ -n "${SLACK_BOT_TOKEN:-}" ] && [ -n "${SLACK_CHANNEL_ID:-}" ]; then
+  SENTINEL=1
+else
+  SENTINEL=0
+  log "WARNING: no SLACK_BOT_TOKEN/SLACK_CHANNEL_ID — outage sentinel disabled; a fleet-wide outage will go unreported"
+fi
+if [ "$SENTINEL" = "1" ]; then
+  for v in SLACK_BOT_TOKEN SLACK_CHANNEL_ID; do
+    if [ -z "${!v:-}" ]; then
+      echo "NEUTRAL_SENTINEL=1 but $v is unset — pass the Slack outbound surface (LLP 0042), or set NEUTRAL_SENTINEL=0." >&2
+      exit 1
+    fi
+  done
+  if tmux has-session -t "=$SENTINEL_SESSION" 2>/dev/null; then
+    log "session $SENTINEL_SESSION already running"
+  else
+    log "starting outage sentinel in tmux session $SENTINEL_SESSION"
+    tmux new-session -d -s "$SENTINEL_SESSION" "$SENTINEL_CMD"
+  fi
+fi
+
 log "${#SESSIONS[@]} loop(s) running: ${SESSIONS[*]}"
 log "watch one with: docker exec -it <container> tmux attach -t <session>"
 
@@ -313,6 +347,13 @@ while :; do
       log "WARNING: mayor session exited — respawning"
       spawn_loop /work "$MAYOR_SESSION" "$NEUTRAL_MAYOR_CMD"
     fi
+  fi
+
+  # A dead sentinel is the supervisor's, deterministically (LLP 0057) — during
+  # an outage it is the only voice left, so it must never stay down.
+  if [ "$SENTINEL" = "1" ] && ! tmux has-session -t "=$SENTINEL_SESSION" 2>/dev/null; then
+    log "WARNING: outage sentinel exited — respawning"
+    tmux new-session -d -s "$SENTINEL_SESSION" "$SENTINEL_CMD"
   fi
 
   alive=0

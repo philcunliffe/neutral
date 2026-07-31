@@ -91,6 +91,17 @@ ENV NEUTRAL_WATCHDOG_MODEL=""
 ENV NEUTRAL_MAYOR="0"
 ENV NEUTRAL_MAYOR_MODEL=""
 
+# Outage sentinel: a deterministic (non-LLM) daemon that posts to Slack when
+# no session in the fleet completes a model turn for the threshold — the last
+# line of defense that survives a Claude API outage (LLP 0057). Empty =
+# auto: on whenever SLACK_BOT_TOKEN + SLACK_CHANNEL_ID are set (independent
+# of NEUTRAL_MAYOR); 0/1 force it. NEUTRAL_HEARTBEAT_URL optionally pings an
+# external dead-man's switch (healthchecks.io-shaped) each pass, covering
+# container/host death from outside.
+ENV NEUTRAL_SENTINEL=""
+ENV NEUTRAL_SENTINEL_SILENCE_MIN="60"
+ENV NEUTRAL_HEARTBEAT_URL=""
+
 # HypAware capture. On by default (local cache only); central sync activates
 # when both HYP_REMOTE_URL and HYP_REMOTE_TOKEN are set at run time. Forwarded
 # rows are labeled with the container hostname — pass a stable, meaningful one
