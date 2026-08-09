@@ -170,11 +170,11 @@ export interface PrObservation {
   headSha: string
   /** PR body — carries the `<!-- neutral-triage: … -->` / `<!-- neutral-verdict: … -->` markers, plus legacy `<!-- neutral-review: … -->` markers (new review records live in the comment thread — LLP 0028). */
   body: string
-  /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). `neutral:adopt` triggers foreign adoption (LLP 0025). */
+  /** Label names. `neutral:stuck` is the human-held authorization boundary: when set, neutral could not auto-advance and the loop must not churn the PR (LLP 0009). `neutral:adopt` triggers adoption (LLP 0025/0058). */
   labels: string[]
   /** Whether neutral can push a heal to the head branch (LLP 0025): `!isCrossRepository || maintainerCanModify`. Own PRs are always pushable; a cross-repo fork only while the contributor allows maintainer edits. Absent ⇒ pushable. */
   canPush?: boolean
-  /** True when this PR is *adopted* — foreign (not neutral's own), triggered by a `neutral:adopt` or `neutral:review` label (LLP 0025/0032). Set at collection; own PRs leave it unset (⇒ the own-PR ladder). */
+  /** True when this PR is in REVIEW-ONLY mode — a `neutral:review` delegation (LLP 0032), or an adopt fork neutral cannot push (LLP 0025). A pushable adoption is NOT foreign: it rides the own-PR ladder end-to-end (LLP 0058). Set at collection; own and adopted PRs leave it unset (⇒ the own-PR ladder). */
   foreign?: boolean
   /** True when the PR carries `neutral:review` (LLP 0032): the narrower, review-only delegation. Forces LLP 0025's review-only mode regardless of push access — neutral reviews and posts the verdict but never pushes. Wins over `neutral:adopt` when both are present (a grant never widens implicitly). */
   reviewOnly?: boolean
@@ -198,10 +198,11 @@ export interface RungDecision {
    * or pushed since it (remove the label, ack, re-run the rungs next tick), else `held`.
    * `merge` is the terminal action only when the repo opted in (`automerge`, LLP 0019):
    * flip ready if draft, then squash-merge — instead of `ready-hold`/`held`.
-   * `approve` / `request-changes` are the terminal + degraded actions for an *adopted* foreign
-   * PR (LLP 0025): they set the `neutral:approved` / `neutral:changes-requested` verdict labels
-   * instead of readying or merging a contributor's PR. `request-changes` also stands in for a
-   * heal rung (merge-base/resolve-conflict/fix-ci) neutral cannot perform when it can't push.
+   * `approve` / `request-changes` are the terminal + degraded actions for a *review-only*
+   * foreign PR (LLP 0025/0058): they set the `neutral:approved` / `neutral:changes-requested`
+   * verdict labels instead of readying or merging a contributor's PR. `request-changes` also
+   * stands in for every heal rung (merge-base/resolve-conflict/fix-ci) — review-only never
+   * pushes. A pushable adoption is not foreign and takes the own-PR actions above (LLP 0058).
    * `mark-adopted` is the one action emitted for a *merged* PR: an adoption that landed
    * (merged ∧ `neutral:adopt`) but does not yet carry its `neutral:adopted` completion record
    * (LLP 0031) — a mechanical label add, set-if-absent, so it fires at most once per PR.

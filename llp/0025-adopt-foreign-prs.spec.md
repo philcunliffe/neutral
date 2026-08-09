@@ -48,6 +48,12 @@ never an authorization question — the label already answered that (LLP 0024).
 
 ## The degraded rung ladder
 
+> **Superseded-by [LLP 0058](0058-adopted-prs-are-own.decision.md)** (partial): full-heal
+> mode no longer exists as a *foreign* mode — a pushable `neutral:adopt` delegation now
+> classifies as neutral's **own** and rides the own-PR ladder end-to-end, terminal (and
+> triage at the review cap) included. This section's degraded ladder and verdict terminal
+> apply only to **review-only mode** (`neutral:review`, or a fork neutral cannot push).
+
 The rungs and their strict order are unchanged (mergeable → green → reviewed → terminal,
 one rung per PR per tick — LLP 0009). Two things change for a foreign PR: heal actions are
 gated on `canPush`, and the terminal rung emits a verdict label.

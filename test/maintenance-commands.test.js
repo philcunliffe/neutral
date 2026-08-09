@@ -61,19 +61,40 @@ test('collectPRs is empty when there are no open PRs (offline-safe)', async () =
   assert.deepEqual(await collectPRs('/r', fakeWorld({ prs: [] })), [])
 })
 
-test('collectPRs adopts a foreign PR labelled neutral:adopt; an unlabelled foreign PR stays out of scope (LLP 0025)', async () => {
+test('collectPRs adopts a pushable neutral:adopt PR as its OWN — foreign: false (LLP 0025/0058)', async () => {
   const exec = fakeWorld({
     prs: [
       { number: 3, headRefName: 'feature/from-a-human' },                          // foreign, NO label -> excluded
-      { number: 4, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] } // adopted -> in scope
+      { number: 4, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }] } // adopted -> in scope, own ladder
     ],
     views: {
       4: { number: 4, headRefName: 'contrib/patch', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'ddd', body: '', isCrossRepository: true, maintainerCanModify: true }
     }
   })
   const got = await collectPRs('/r', exec)
-  // only #4 is picked up; a pushable fork with an unreviewed head -> review
-  assert.deepEqual(got.map(p => [p.number, p.foreign, p.canPush, p.action]), [[4, true, true, 'review']])
+  // only #4 is picked up; a pushable adoption is no longer foreign — own ladder, unreviewed head -> review
+  assert.deepEqual(got.map(p => [p.number, p.foreign, p.adopted, p.canPush, p.action]), [[4, false, true, true, 'review']])
+})
+
+test('an adopted PR rides the own ladder to the terminal — automerge merges it (LLP 0058/0019)', async () => {
+  // reviewed-clean adopted PR in an automerge repo: own terminal, so `merge` — the adopt
+  // label authorized the landing; the verdict-label terminal is review-only's now
+  const exec = fakeWorld({
+    prs: [{ number: 9, headRefName: 'contrib/patch', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:adopted' }] }],
+    views: {
+      9: { number: 9, headRefName: 'contrib/patch', baseRefName: 'main', isDraft: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [], headRefOid: 'abc1234', body: '<!-- neutral-review: abc1234 -->', labels: [{ name: 'neutral:adopt' }, { name: 'neutral:adopted' }], isCrossRepository: true, maintainerCanModify: true }
+    }
+  })
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-prs-'))
+  try {
+    // without automerge: the own reviewed-clean terminal, held for a human
+    assert.deepEqual((await collectPRs(repo, exec)).map(p => [p.number, p.foreign, p.adopted, p.action]), [[9, false, true, 'held']])
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ automerge: true }))
+    assert.deepEqual((await collectPRs(repo, exec)).map(p => [p.number, p.action]), [[9, 'merge']])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
 })
 
 test('collectPRs review-only degrades an unpushable fork to request-changes on a stale base (LLP 0025)', async () => {

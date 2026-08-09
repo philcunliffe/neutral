@@ -235,34 +235,37 @@ test('selectRung: neutral:stuck wins over every rung — no report yet asks for 
   assert.equal(selectRung(pr({ headSha: 'abc1234' })).action, 'review')
 })
 
-// --- Adopted (foreign) PRs — LLP 0025 -----------------------------------------------------
+// --- Foreign (review-only) PRs — LLP 0025, rescoped by LLP 0058 ---------------------------
 
-/** A foreign (adopted) PR observation: mergeable+green by default, overridable. */
+/** A foreign (review-only) PR observation: mergeable+green by default, overridable.
+ * `canPush: true` on purpose — foreign ⇔ review-only mode, so push access must be ignored
+ * (a pushable adoption never reaches the classifier as foreign; LLP 0058). */
 function fpr(over = {}) { return pr({ foreign: true, canPush: true, head: 'contrib/patch', ...over }) }
 
-test('foreign PR (canPush): heals like an own PR but terminal is a verdict, not ready/merge (LLP 0025)', () => {
-  // heal rungs are identical to an own PR when neutral can push to the fork
-  assert.equal(selectRung(fpr({ mergeStateStatus: 'BEHIND' })).action, 'merge-base')
-  assert.equal(selectRung(fpr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).action, 'resolve-conflict')
-  assert.equal(selectRung(fpr({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).action, 'fix-ci')
+test('foreign ⇔ review-only: heal rungs degrade to request-changes even with push access (LLP 0058)', () => {
+  // full-heal foreign is retired — a foreign PR is never healed, whatever canPush says
+  assert.equal(selectRung(fpr({ mergeStateStatus: 'BEHIND' })).action, 'request-changes')
+  assert.equal(selectRung(fpr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' })).action, 'request-changes')
+  assert.equal(selectRung(fpr({ rollup: [{ status: 'COMPLETED', conclusion: 'FAILURE' }] })).action, 'request-changes')
+  // pending still waits (LLP 0002); review still runs — it needs no push
   assert.equal(selectRung(fpr({ rollup: [{ status: 'IN_PROGRESS' }] })).action, 'wait')
   assert.equal(selectRung(fpr({ headSha: 'abc1234' })).action, 'review') // unreviewed head
   // reviewed ∧ mergeable ∧ green -> APPROVE (verdict label), never ready-hold/merge...
   const body = '<!-- neutral-review: abc1234 -->'
   assert.deepEqual(pick(selectRung(fpr({ headSha: 'abc1234', body }))), { rung: 'terminal', action: 'approve' })
-  // ...and automerge never applies to a contributor's PR (LLP 0000 §Autonomy)
+  // ...and automerge never applies to a review-only PR (LLP 0000 §Autonomy)
   assert.equal(selectRung(fpr({ headSha: 'abc1234', body }), 2, true).action, 'approve')
 })
 
-test('foreign PR at the review cap hands residual findings to the contributor, not triage (LLP 0025)', () => {
+test('foreign PR review cap never fires — review-only runs no fix loop (LLP 0025/0058)', () => {
   const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
-  assert.equal(selectRung(fpr({ headSha: 'beef999', body })).action, 'request-changes')
+  assert.equal(selectRung(fpr({ headSha: 'beef999', body })).action, 'review')
   // comment records count the same rounds on a foreign PR (LLP 0028 — reuse unchanged)
   const comments = [
     { author: 'phil', body: '<!-- neutral-review: abc0001 findings -->\nr1', createdAt: '1' },
     { author: 'phil', body: '<!-- neutral-review: abc0002 findings -->\nr2', createdAt: '2' }
   ]
-  assert.equal(selectRung(fpr({ headSha: 'beef999', comments })).action, 'request-changes')
+  assert.equal(selectRung(fpr({ headSha: 'beef999', comments })).action, 'review')
   // and a clean record at head is the reviewed rung satisfied -> approve
   const clean = [{ author: 'phil', body: '<!-- neutral-review: abc1234 clean -->\nlgtm', createdAt: '1' }]
   assert.deepEqual(pick(selectRung(fpr({ headSha: 'abc1234', comments: clean }))), { rung: 'terminal', action: 'approve' })
