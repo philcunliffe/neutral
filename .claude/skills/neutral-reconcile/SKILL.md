@@ -475,9 +475,12 @@ which replies are new.
   the single act. If you fixed findings the head has since moved, so the next tick
   re-reviews the new head (round 2); if the review was `clean` the record covers
   the current head and the PR is terminal. The CLI bounds this to **N=2** rounds
-  before it returns `triage`.
+  before it returns `triage` — plus any budget a human granted in the thread with a
+  `neutral: rounds +N` comment (LLP 0059; the CLI folds grants into the cap, so trust
+  the `action` field as ever — no skill-side arithmetic).
 - **`triage`** (rung 3, review rounds exhausted at an unreviewed head): the fix-loop hit
-  `maxReviewRounds` with findings still open. **Before parking the PR, judge whether it can
+  the review-round cap (`maxReviewRounds` + in-thread grants, LLP 0059) with findings
+  still open. **Before parking the PR, judge whether it can
   ship safely** (LLP 0017). Dispatch ONE agent (**judgment tier — `fable`**, LLP 0020 —
   a mis-classified blocker ships a production defect; this call is not machine-checkable)
   in its **own worktree** to re-read every

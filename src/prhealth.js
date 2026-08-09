@@ -246,6 +246,44 @@ export function humanRepliesAfterStuckReport(comments) {
   return (comments || []).slice(report.index + 1).filter(isHumanComment)
 }
 
+// `neutral: rounds +N` — a REVIEW-ROUND BUDGET GRANT in the PR thread (LLP 0059): raises
+// this PR's review cap by N over the repo's `maxReviewRounds`, so the fix loop keeps going
+// instead of triaging at the default bound. Line-anchored so machinery that merely QUOTES
+// the syntax mid-sentence (a stuck report explaining the lever) cannot grant. Grants are
+// PR-scoped and lifetime — not head-keyed — because what they extend (the round count,
+// LLP 0029) is itself cumulative across heads, so a grant is consumed by the rounds it
+// pays for.
+// @ref LLP 0059#thread-grants [implements] — the grant directive
+const ROUNDS_GRANT_RE = /^[ \t]*neutral:\s*rounds\s*\+(\d+)\b/gim
+
+// The mayor's authored-comment marker (LLP 0042): the one neutral-marked comment that
+// still carries a human's say-so — the mayor authors a comment only on a human's explicit
+// Slack ask (LLP 0041 §identity-principle), turning loose phrasing ("give #12 two more
+// rounds") into the canonical grant line.
+// @ref LLP 0059#who-grants [constrained-by] — the mayor exception to the marker rule
+const MAYOR_COMMENT_RE = /<!--\s*neutral-mayor\b/i
+
+/**
+ * Total review rounds GRANTED on top of the repo cap, summed over every qualifying
+ * `neutral: rounds +N` line in the thread (LLP 0059). A grant carries a human's
+ * authority, read from authorship: a human comment (the LLP 0027 discriminator) or a
+ * mayor-authored comment (`<!-- neutral-mayor -->` — written only on a human's explicit
+ * ask). Neutral's own review/stuck/triage machinery can never extend its own budget.
+ * @param {PrComment[]} comments
+ * @returns {number}
+ * @ref LLP 0059#who-grants [implements]
+ */
+export function grantedReviewRounds(comments) {
+  const arr = Array.isArray(comments) ? comments : []
+  let sum = 0
+  for (const c of arr) {
+    const body = String(c && c.body || '')
+    if (!isHumanComment(c) && !MAYOR_COMMENT_RE.test(body)) continue
+    for (const m of body.matchAll(ROUNDS_GRANT_RE)) sum += Number(m[1])
+  }
+  return sum
+}
+
 /**
  * Classify the mergeable rung from GitHub's own `mergeable` / `mergeStateStatus`
  * (LLP 0009 rung 1). `UNKNOWN` mergeability is "wait", not failure (LLP 0002:
@@ -373,8 +411,13 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   // marker satisfies this rung just as a clean review record does.
   // @ref LLP 0017 [implements] — triage at the cap replaces a blanket stuck
   if (!reviewedAtHead(pr.body, pr.comments, pr.headSha) && !triagedAtHead(pr.body, pr.headSha)) {
-    if (reviewRounds(pr.body, pr.comments) >= maxReviewRounds) {
-      return { rung: 'reviewed', action: 'triage', reason: `${maxReviewRounds} review round(s) exhausted — triage residual findings (defer non-blockers to neutral:fix, else neutral:stuck)` }
+    // The cap is the repo config plus any budget granted in the thread — a human (or the
+    // mayor on a human's ask) commented `neutral: rounds +N` to buy more fix rounds.
+    // @ref LLP 0059#thread-grants [implements] — effective cap = config + grants
+    const granted = grantedReviewRounds(pr.comments)
+    const cap = maxReviewRounds + granted
+    if (reviewRounds(pr.body, pr.comments) >= cap) {
+      return { rung: 'reviewed', action: 'triage', reason: `${cap} review round(s) exhausted${granted ? ` (${maxReviewRounds} + ${granted} granted in-thread)` : ''} — triage residual findings (defer non-blockers to neutral:fix, else neutral:stuck)` }
     }
     return { rung: 'reviewed', action: 'review', reason: 'head not yet reviewed — run the review, fix findings, post the marker-signed review record comment' }
   }

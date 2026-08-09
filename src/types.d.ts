@@ -178,7 +178,7 @@ export interface PrObservation {
   foreign?: boolean
   /** True when the PR carries `neutral:review` (LLP 0032): the narrower, review-only delegation. Forces LLP 0025's review-only mode regardless of push access — neutral reviews and posts the verdict but never pushes. Wins over `neutral:adopt` when both are present (a grant never widens implicitly). */
   reviewOnly?: boolean
-  /** The comment thread, chronological — carries the marker-signed review records (LLP 0028), the stuck report, and the human replies that unstick a held PR (LLP 0026/0027). */
+  /** The comment thread, chronological — carries the marker-signed review records (LLP 0028), the stuck report, the human replies that unstick a held PR (LLP 0026/0027), and the `neutral: rounds +N` review-budget grants (LLP 0059). */
   comments: PrComment[]
 }
 

@@ -246,6 +246,15 @@ Then:
   swallowed). Confirm in the thread once submission is verified. You steer only
   on a human request; healing on your own judgment is the watchdog's job
   (LLP 0041 §report-relay).
+- **An ask to raise a PR's review budget** ("give hypaware#12 two more review
+  rounds") → author a comment on that PR — the rare authored case (LLP 0042):
+  first line `<!-- neutral-mayor -->`, then on its own line
+  `neutral: rounds +N — granted by <user> via Slack`. The reconcile CLI folds
+  the grant into that PR's review-round cap (LLP 0059), so the fix loop keeps
+  going instead of triaging at the repo bound. Grants sum; increase-only.
+  Confirm in the thread. (A reply under the PR's root that already contains a
+  literal `neutral: rounds +N` line needs no authoring — the ordinary verbatim
+  unmarked relay above *is* the grant, since human comments grant directly.)
 - **A question** → answer from ground truth re-derived *now* — `neutral prs
   --json` / `neutral backlog --json` / `neutral issues --json` in the clones,
   `gh`, transcripts, `tmux capture-pane` — never from memory of a past tick.

@@ -6,7 +6,7 @@ import {
   parseReviewMarkers, reviewRecords, reviewRounds, reviewedAtHead,
   parseTriageMarkers, triagedAtHead,
   parseVerdictMarkers, verdictAtHead, needsAdoptedLabel,
-  latestStuckReport, isHumanComment, humanRepliesAfterStuckReport
+  latestStuckReport, isHumanComment, humanRepliesAfterStuckReport, grantedReviewRounds
 } from '../src/prhealth.js'
 
 /**
@@ -164,6 +164,39 @@ test('selectRung reviewed rung: review when head unreviewed, triage past the rou
   assert.equal(selectRung(pr({ headSha: 'beef999', body })).action, 'triage')
   // a custom round cap is honoured
   assert.equal(selectRung(pr({ headSha: 'beef999', body: '<!-- neutral-review: abc0001 -->' }), 1).action, 'triage')
+})
+
+test('grantedReviewRounds: human and mayor grants sum; neutral machinery and bots cannot grant (LLP 0059)', () => {
+  const human = { author: 'phil', body: 'take more care here\nneutral: rounds +2', createdAt: '1' }
+  const mayor = { author: 'phil', body: '<!-- neutral-mayor -->\nneutral: rounds +1 — granted by phil via Slack', createdAt: '2' }
+  assert.equal(grantedReviewRounds([human]), 2)
+  assert.equal(grantedReviewRounds([human, mayor]), 3) // grants sum across the thread
+  // neutral's own machinery QUOTING the syntax mid-sentence grants nothing: marked
+  // comments are not human, and the directive is line-anchored anyway
+  const stuck = { author: 'phil', body: '<!-- neutral-stuck: abc1234 -->\nyou can grant more with neutral: rounds +2', createdAt: '3' }
+  assert.equal(grantedReviewRounds([stuck]), 0)
+  // a human merely QUOTING the syntax mid-sentence does not grant either
+  const quoting = { author: 'phil', body: 'you could comment neutral: rounds +5 to extend', createdAt: '4' }
+  assert.equal(grantedReviewRounds([quoting]), 0)
+  // bots never grant (CI chatter must not extend the budget)
+  const bot = { author: 'renovate[bot]', body: 'neutral: rounds +9', createdAt: '5' }
+  assert.equal(grantedReviewRounds([bot]), 0)
+  assert.equal(grantedReviewRounds([]), 0)
+  assert.equal(grantedReviewRounds(/** @type {any} */ (undefined)), 0)
+})
+
+test('a thread grant raises the review cap past maxReviewRounds (LLP 0059)', () => {
+  // two rounds spent, default cap 2 -> triage without a grant
+  const body = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->'
+  assert.equal(selectRung(pr({ headSha: 'beef999', body })).action, 'triage')
+  // a human grant of +1 buys another round: review, not triage
+  const grant = [{ author: 'phil', body: 'neutral: rounds +1', createdAt: '1' }]
+  assert.equal(selectRung(pr({ headSha: 'beef999', body, comments: grant })).action, 'review')
+  // the extended budget spent too -> triage again, with the grant visible in the reason
+  const spent = '<!-- neutral-review: abc0001 -->\n<!-- neutral-review: abc0002 -->\n<!-- neutral-review: abc0003 -->'
+  const d = selectRung(pr({ headSha: 'beef999', body: spent, comments: grant }))
+  assert.equal(d.action, 'triage')
+  assert.match(d.reason, /3 review round\(s\) exhausted \(2 \+ 1 granted in-thread\)/)
 })
 
 test('triage markers: parse all SHAs, match any against head, ignore the #issue suffix', () => {
