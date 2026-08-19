@@ -565,10 +565,10 @@ which replies are new.
   human merge:** next tick the design LLP on `origin/<DEFAULT>` /
   `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
 - **`enqueue`** (terminal, only when both `automerge: true` and `mergeQueue: true`
-  — LLP 0060): `gh pr ready <N>` if still a draft, then
-  `gh pr merge <N> --squash --match-head-commit <headSha>`. The head guard prevents
-  a changed, unreviewed head from entering between observation and action. On a
-  queue-required target this adds the PR to GitHub's queue; it does not bypass it.
+  — LLP 0060/0061): `gh pr ready <N>` if still a draft, re-observe next tick, then
+  `neutral enqueue <N> <headSha>`. The command verifies the current head, passes it
+  again as GraphQL `expectedHeadOid`, and requires a returned queue entry. This adds
+  the PR to GitHub's queue; it does not use or require repository auto-merge.
   Next tick, a live GraphQL `mergeQueueEntry` makes the CLI return `wait` with
   `approved: true`. Do not merge the target into the branch, re-review, or re-enqueue
   while that entry exists. If GitHub removes the entry, the CLI re-opens the proper
