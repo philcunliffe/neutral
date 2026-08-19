@@ -26,5 +26,6 @@ export {
 export { fixBranchName, fixedIssueNumbers, classifyIssue } from './issuefix.js'
 export { idleState } from './idle.js'
 export { admissionState } from './admission.js'
+export { enqueuePR } from './commands/enqueue.js'
 export { contextSizeFromTranscript, usageOf, projectSlug, transcriptPath, readContextSize } from './context.js'
 export { newestUsageMs, classifySilence, incidentKey, sentinelStep, formatAlert, formatNag, formatRecovery } from './silence.js'

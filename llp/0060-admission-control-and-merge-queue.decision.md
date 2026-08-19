@@ -71,6 +71,10 @@ precedence. At the reviewed-clean terminal, `enqueue` flips a draft ready and ru
 `gh pr merge <N> --squash --match-head-commit <headSha>`. On a queue-required target,
 GitHub adds the exact head to the queue and validates the synthesized merge group.
 
+> **Extended-by [LLP 0061](0061-explicit-merge-queue-enqueue.decision.md):** a live
+> queue exposed `gh pr merge` falling back to disabled auto-merge. The executor is
+> now `neutral enqueue`, backed by GraphQL `enqueuePullRequest` with `expectedHeadOid`.
+
 Queue membership is read from the Pull Request GraphQL `mergeQueueEntry` field.
 While an entry exists, the classifier returns `wait` with `approved: true`; it does
 not re-enqueue, merge the target into the branch, or repeat review. If GitHub drops
