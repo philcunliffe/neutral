@@ -8,9 +8,9 @@
 // prose, so it is unit-tested rather than an agent's judgement.
 // @ref LLP 0009#pr-health-reconciler [implements]
 import { run } from '../git.js'
-import { listOpenPRs, listMergedAdoptPRs, viewPR } from '../github.js'
+import { listOpenPRs, listMergedAdoptPRs, viewPR, isPRQueued } from '../github.js'
 import { selectRung, humanRepliesAfterStuckReport, needsAdoptedLabel } from '../prhealth.js'
-import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL, REVIEW_LABEL } from '../config.js'
+import { loadConfig, ADOPT_LABEL, ADOPTED_LABEL, REVIEW_LABEL, STUCK_LABEL } from '../config.js'
 import { AUTOPHAGY_PREFIX } from '../autophagy.js'
 
 // In scope: neutral's OWN integration/fix PRs (by ownership, no label), PLUS PRs a
@@ -34,15 +34,15 @@ const OWN_HEAD_RE = /^(integration\/|fix\/issue-|autophagy\/)/
  * not completion, is what the label records.
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, adopted: boolean, canPush: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string}>>}
+ * @returns {Promise<Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, adopted: boolean, canPush: boolean, stuck: boolean, queued: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string, approved?: boolean}>>}
  */
 export async function collectPRs(repo, exec = run) {
-  const { maxReviewRounds, automerge } = loadConfig(repo)
+  const { maxReviewRounds, automerge, mergeQueue } = loadConfig(repo)
   const open = await listOpenPRs(repo, exec)
   // Own by head-branch ownership; delegated only when a maintainer explicitly labelled it —
   // `neutral:adopt` for full heal (LLP 0025) or `neutral:review` for review-only (LLP 0032).
   const inScope = open.filter(p => OWN_HEAD_RE.test(p.headRefName) || p.labels.includes(ADOPT_LABEL) || p.labels.includes(REVIEW_LABEL))
-  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, adopted: boolean, canPush: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string}>} */
+  /** @type {Array<{number: number, head: string, base: string, isDraft: boolean, headSha: string, foreign: boolean, reviewOnly: boolean, adopted: boolean, canPush: boolean, stuck: boolean, queued: boolean, guidance: number, markAdopted: boolean, rung: string, action: string, reason: string, approved?: boolean}>} */
   const out = []
   for (const p of inScope) {
     const obs = await viewPR(repo, p.number, exec)
@@ -63,14 +63,16 @@ export async function collectPRs(repo, exec = run) {
     // autophagy cleanup PR is held for a human even in an automerge repo.
     // @ref LLP 0036#no-automerge [implements]
     const merge = automerge && !obs.head.startsWith(AUTOPHAGY_PREFIX)
-    const decision = selectRung({ ...obs, foreign, reviewOnly }, maxReviewRounds, merge)
+    const queued = mergeQueue && !foreign ? await isPRQueued(repo, obs.nodeId || '', exec) : false
+    const decision = selectRung({ ...obs, foreign, reviewOnly, queued }, maxReviewRounds, merge, mergeQueue)
+    const stuck = obs.labels.includes(STUCK_LABEL)
     const guidance = humanRepliesAfterStuckReport(obs.comments).length
     // Engagement stamp (LLP 0037): observing an adopt-labelled PR IS taking it on, so
     // the first tick that classifies it owes it `neutral:adopted`, set-if-absent.
     // Review-only delegations are narrower and are not adoptions (LLP 0032).
     // @ref LLP 0037#engagement [implements]
     const markAdopted = !own && needsAdoptedLabel(obs.labels)
-    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, adopted, canPush: obs.canPush !== false, guidance, markAdopted, ...decision })
+    out.push({ number: obs.number, head: obs.head, base: obs.base, isDraft: obs.isDraft, headSha: obs.headSha, foreign, reviewOnly, adopted, canPush: obs.canPush !== false, stuck, queued, guidance, markAdopted, ...decision })
   }
   // Backstop sweep (LLP 0031, retimed by LLP 0037): a MERGED adoption neutral never saw
   // open still owes its `neutral:adopted` record. With engagement-time stamping above this
@@ -82,7 +84,7 @@ export async function collectPRs(repo, exec = run) {
     if (OWN_HEAD_RE.test(p.headRefName) || !needsAdoptedLabel(p.labels)) continue
     out.push({
       number: p.number, head: p.headRefName, base: '', isDraft: false, headSha: '',
-      foreign: false, reviewOnly: false, adopted: true, canPush: true, guidance: 0, markAdopted: true, rung: 'terminal', action: 'mark-adopted',
+      foreign: false, reviewOnly: false, adopted: true, canPush: true, stuck: false, queued: false, guidance: 0, markAdopted: true, rung: 'terminal', action: 'mark-adopted',
       reason: `merged while carrying ${ADOPT_LABEL} — add ${ADOPTED_LABEL}, the adoption completion record (LLP 0031)`
     })
   }

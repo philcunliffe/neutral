@@ -1,13 +1,13 @@
 ---
 name: neutral-reconcile
-description: Run one reconcile tick of neutral — observe git/GitHub ground truth across both reconciler families (LLP→PR pipeline + PR/issue maintenance), fan out every branch-disjoint gap in parallel, fan in serial verified merges, and re-derive "done" from git. Holds every result for a human; never merges unless the repo opts in (`automerge`, LLP 0019). Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to drive a repo toward neutral state, or to run one tick by hand.
+description: Run one reconcile tick of neutral — observe git/GitHub ground truth across both reconciler families (LLP→PR pipeline + PR/issue maintenance), heal every admitted branch-disjoint gap in parallel, admit bounded new work, fan in serial verified merges, and re-derive "done" from git. Holds every result for a human; lands only when the repo opts in (`automerge`, optionally through `mergeQueue`). Idempotent and safe to re-run. Use when running `/loop /neutral-reconcile` to drive a repo toward neutral state, or to run one tick by hand.
 allowed-tools: Bash, Read, Write, Edit, Agent, Skill, Workflow
 ---
 
 # neutral-reconcile
 
 One **tick** of the neutral reconciler. A tick observes ground truth across every
-reconciler family, **fans out all branch-disjoint gaps in parallel**, **fans in**
+reconciler family, **fans out admitted branch-disjoint gaps in parallel**, **fans in**
 serial verified merges, re-derives "done" from git/GitHub, and returns. Re-running
 is always safe — state is derived, not stored. Driven by `/loop /neutral-reconcile`.
 
@@ -28,8 +28,9 @@ no in-scope PR left unmergeable / failing / unreviewed. Neutral stops at the
 boundary of what only a human may do: **merging is the one act neutral never
 performs** — unless the repo owner moved that boundary with `automerge: true`
 in `.neutral/config.json` (LLP 0019), in which case the terminal rung merges
-instead of holding. By default it drives every artifact to *held, green,
-reviewed* and waits.
+instead of holding. `mergeQueue: true` delegates base freshness and landing order
+to GitHub's merge queue (LLP 0060). By default it drives every artifact to *held,
+green, reviewed* and waits.
 
 ## The one rule — ground truth, never self-report (LLP 0002)
 
@@ -85,16 +86,19 @@ work, the tick verifies it.
      - `prs` → every in-scope open PR (own `integration/*` and
        `fix/issue-*`) with the **single rung action** `reconcilePR` should take this
        tick (`merge-base | resolve-conflict | fix-ci | review | triage | ready-hold |
-       stuck-report | unstick | wait | held`). The CLI decides the rung from observed
+       merge | enqueue | stuck-report | unstick | wait | held`). The CLI decides the rung from observed
        state — you act, you do not re-decide. A non-zero `guidance` field means the
        thread carries human replies to a stuck report (LLP 0027) — feed them to any
        worker you dispatch for that PR.
      - `issues` → every open `neutral:fix` issue with its fix-attempt
        state (`needs-fix | attempt-exists | stuck`).
-3. **Fan out** every **branch-disjoint** gap concurrently (LLP 0010) — implement a
-   change set, resolve a conflict on PR X, fix CI on PR Y, review PR Z, mint a
-   design, write the fix for issue I. Each worker is blind to the others and works in
-   its **own** `git worktree` (never the main checkout).
+   - `admission` → the deterministic LLP 0060 work-cap decision: active/frozen
+     surfaces, `available` new slots, and `open`. Trust this field; never recount it.
+3. **Fan out admitted work** concurrently (LLP 0010/0060). Every existing PR and
+   change set continues through its owed action even when admission is paused. New
+   branch-producing intake is bounded by `admission.available` as described below.
+   Each worker is blind to the others and works in its **own** `git worktree`
+   (never the main checkout).
 4. **Fan in** — *you*, the orchestrator, perform the serial verified merges and
    **re-derive "done" from git/`gh`** before anything counts. A worker's report is a
    hint; the re-derivation is the conclusion.
@@ -127,6 +131,34 @@ parallel; same-branch work serializes. This is what stops PR-health's base-merge
 Workflow concurrency cap is hit, **priority is only queue order** (held-PR
 dependents → review → implement → issue-fix → design); it no longer selects a single
 action.
+
+### Admission — heal broadly, start narrowly (LLP 0060)
+
+`observe.admission` is the one authority for new work. Its active surfaces already
+include every non-frozen open PR, unshipped change set, and fix-attempt branch, with
+the branch/PR forms deduplicated. `neutral:stuck` work awaiting a human is listed in
+`frozen` and frees its slot.
+
+- **Always advance admitted work:** every `prs` action and every non-null
+  `changesets` action. In particular, `create-pr` consumes no new slot: its change
+  set already consumed one. Capacity never stops healing, checking, reviewing,
+  triaging, or landing work already in flight.
+- **New work consumes a slot when its branch is created:** a `needs-fix` issue's
+  `fix/issue-*` branch, an `implementable` design's `integration/*` branch, each
+  Designer-minted `integration/*` branch, and any autophagy branch/PR.
+- **Reserve at most `admission.available` slots this tick.** Prefer deferred
+  `needs-fix` issues, then design-first `implementable` entries, then backlog
+  Designer groups. Within each class use the report's stable order. Decrement the
+  local reservation when a branch is actually created; a failed/no-op creation
+  consumes none. Do not refill from a fresh observation mid-tick.
+- **At `available: 0`, admit nothing new.** A triage worker still records a
+  non-blocking finding as a `neutral:fix` issue, but do not dispatch Issue-fix for
+  it until a later tick exposes a slot. This is how review feedback becomes backlog
+  instead of recursively becoming more PRs.
+
+The Designer may partition the whole backlog for reasoning, but mints no more than
+the slots reserved for Designer groups. The remainder stays uncovered and is
+re-observed next tick.
 
 ### Context autophagy — recycle on idle (LLP 0013)
 
@@ -261,7 +293,8 @@ tier per their heading.
 ## Fan-out worker: Designer (pipeline)  — judgment tier (`fable`)
 
 Goal: every live request is `@ref`'d by a `design` LLP. Plan the **whole** backlog
-up front and mint **all** change sets in one pass (do not dribble one group per tick).
+up front, then mint only the groups covered by this tick's reserved admission slots
+(LLP 0060). The remainder deliberately stays in the backlog for a later tick.
 
 1. `neutral backlog --json` — the full backlog (already excludes code-, in-flight-,
    and baseline-covered requests). Empty → no Designer work.
@@ -271,8 +304,9 @@ up front and mint **all** change sets in one pass (do not dribble one group per 
    `Systems:`, dense `Related:`, a natural feature boundary); order with `dependsOn`
    so B follows A when B builds on A's code; keep groups independent where you can.
    `log` the plan (one line per group).
-3. **Mint every change set** in topological order, sequential LLP numbers across the
-   batch (start at one past the highest LLP number across `<DEFAULT>` and all
+3. **Mint the admitted change sets** in topological order, stopping at the reserved
+   Designer slot count. Use sequential LLP numbers across the admitted batch (start
+   at one past the highest LLP number across `<DEFAULT>` and all
    `integration/*`; `git ls-tree -r --name-only <ref> llp/`). For each, in its **own
    detached worktree** (never the main checkout, LLP 0012):
    - `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<DEFAULT> && cd "$WT"`
@@ -291,7 +325,8 @@ branch. A design is implementable two ways: **neutral-minted** (already on
 `integration/<slug>` from the Designer), or **design-first** (LLP 0016) — a human merged
 a `design` to the target at `**Status:** Accepted`, surfaced by `neutral implementable`.
 
-**Design-first only — seed the branch first** (idempotent; skip if it exists): in a
+**Design-first only — seed the branch first** only when this entry received one of
+the tick's admission slots (idempotent; skip if it exists): in a
 detached worktree off the target, create `integration/<slug>` so the change set has a
 branch (the design rides along from the target) —
 `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<DEFAULT> && cd "$WT" && git push origin HEAD:integration/<slug> && cd <repo> && git worktree remove --force "$WT"`.
@@ -371,7 +406,7 @@ PR each tick, sync the `neutral:approved` label to the decision's **`approved`**
 `gh pr edit N --add-label neutral:approved` iff `approved` is `true` and the label is
 absent, or `gh pr edit N --remove-label neutral:approved` iff `approved` is falsy and the
 label is present (do nothing when already in sync). `approved` is `true` only at the
-reviewed-clean terminal (`ready-hold` / `held` / `merge`), so the label is added there and
+reviewed-clean terminal (`ready-hold` / `held` / `merge` / `enqueue`, plus queue `wait`), so the label is added there and
 **stripped the instant the PR regresses** (any heal/review/stuck/triage rung omits the
 field) — it tracks the current reviewed-clean head and never goes stale. This runs
 alongside the rung action below; it is **not** itself a rung and never blocks one. Adopted
@@ -433,7 +468,8 @@ which replies are new.
   **draft** PR `integration/<slug> → DEFAULT` (`gh pr list --head …` else
   `gh pr create --draft --base DEFAULT --head …`), body ending `Change-Set: <slug>`.
   A `fix/issue-*` PR is created by the issue-fix worker (below) with `Fixes #N`.
-- **`merge-base`** (rung 1, `BEHIND` — stale, no conflict): **mechanical, no agent**,
+- **`merge-base`** (rung 1, `BEHIND` — stale, no conflict; emitted only when
+  `mergeQueue` is off): **mechanical, no agent**,
   in a **detached worktree** (never the main checkout, LLP 0012) — `<pr-branch>` is
   `integration/<slug>` or the `fix/issue-*` branch:
   `WT=$(mktemp -d) && git worktree add --detach "$WT" origin/<pr-branch> && cd "$WT" && git merge --no-edit origin/<DEFAULT> && git push origin HEAD:<pr-branch>`,
@@ -495,7 +531,8 @@ which replies are new.
     Comment on the PR linking the issue. Then append `<!-- neutral-triage: <the head SHA> #M -->`
     to the PR body (`gh pr edit N --body …`) — **last**, so a partial failure re-triages
     rather than skipping. The marker satisfies the reviewed rung; **next tick** the PR is
-    terminal → `ready-hold` flips it `gh pr ready` and HOLDS for a human to merge. The
+    terminal → `ready-hold` holds it, or `enqueue` submits it where automatic queue
+    landing is configured. The
     deferred findings ride the issue-fix reconciler (the invariants compose — LLP 0008).
   - **Any residual finding is a true blocker** → it cannot merge safely. Label the PR
     `neutral:stuck` and post the **stuck report** (LLP 0026, format above): why each
@@ -527,6 +564,15 @@ which replies are new.
   refused (branch protection), leave it — next tick re-observes. **Verify like a
   human merge:** next tick the design LLP on `origin/<DEFAULT>` /
   `gh pr view --json state` = `MERGED` is the ground truth, not gh's exit code.
+- **`enqueue`** (terminal, only when both `automerge: true` and `mergeQueue: true`
+  — LLP 0060): `gh pr ready <N>` if still a draft, then
+  `gh pr merge <N> --squash --match-head-commit <headSha>`. The head guard prevents
+  a changed, unreviewed head from entering between observation and action. On a
+  queue-required target this adds the PR to GitHub's queue; it does not bypass it.
+  Next tick, a live GraphQL `mergeQueueEntry` makes the CLI return `wait` with
+  `approved: true`. Do not merge the target into the branch, re-review, or re-enqueue
+  while that entry exists. If GitHub removes the entry, the CLI re-opens the proper
+  rung from current ground truth.
 - **`wait`** / **`held`**: do nothing this tick.
 
 ### Delegated PRs — `neutral:adopt` / `neutral:review` (LLP 0025/0032/0058)
@@ -541,8 +587,8 @@ the verdict, but **never push to the branch**, even when push access exists (LLP
 delegation is tagged `[adopt]` and rides the ordinary own-PR ladder above **end-to-end**:
 heal every rung and **push the fixes to the contributor's branch**, `triage` at the review
 cap (LLP 0017), sync `neutral:approved` to the decision's `approved` field (LLP 0030), and
-take the own terminal — `ready-hold`/`held`, or `merge` where the repo opted into automerge
-(LLP 0019). The maintainer's label delegated the PR's *whole care, terminal included*
+take the own terminal — `ready-hold`/`held`, `merge`, or `enqueue` where the repo opted
+into automatic landing (LLP 0019/0060). The maintainer's label delegated the PR's *whole care, terminal included*
 (LLP 0024/0058); there is no additional consent to seek and no reason to hold back because
 the code started as a contributor's. Do not voluntarily downgrade to review-only, do not
 substitute a comment for a fix you could push, and do not skip the PR out of caution: a
@@ -592,7 +638,8 @@ documented `neutral:stuck`. The reconciler's whole job is **issue → fix PR**;
 `reconcilePR` then carries that PR to held + green + reviewed (the two invariants
 compose). The label is the **authorization** — no `neutral:fix`, no action.
 
-For each issue `neutral issues --json` reports as **`needs-fix`** (skip
+For each issue `neutral issues --json` reports as **`needs-fix`** that received one
+of this tick's admission slots (skip the rest until capacity opens; skip
 `attempt-exists` — resume via `reconcilePR`; skip `stuck` — a human must look):
 
 1. **Idempotent intake** (the CLI already checked): `fix/issue-N` branch off the
@@ -637,16 +684,16 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   waiting on in-terminal input. Every question for a human goes through
   `neutral:stuck` + the marker-signed stuck report on the artifact's thread
   (LLP 0026/0027), where it blocks only that one artifact instead of the loop.
-- **Never merge — unless the CLI's rung says `merge`.** Merging is the one
+- **Never land — unless the CLI's rung says `merge` or `enqueue`.** Landing is the one
   irreversible act, a human's by default; drive to held + green + reviewed and
   stop. The single exception is the repo opting in via `automerge: true`
-  (LLP 0019), and even then only the `neutral prs` action decides — never merge
-  on your own judgement.
+  (LLP 0019); `mergeQueue: true` selects queue landing (LLP 0060). Even then only
+  the `neutral prs` action decides — never merge or enqueue on your own judgement.
 - **Never push to the target branch.** All design/plan/code/fixes land via a held PR.
 - **Never `gh pr ready` or merge an unlabelled foreign PR or a review-only delegation.**
   Own PRs (`integration/*`, `fix/issue-*`) **and adopted PRs** (`[adopt]` — a pushable
   `neutral:adopt` delegation is neutral's own, LLP 0058) terminate in
-  `ready-hold`/`held`/`merge` and carry `neutral:approved` at that reviewed-clean terminal,
+  `ready-hold`/`held`/`merge`/`enqueue` and carry `neutral:approved` at that reviewed-clean terminal,
   synced head-accurately to the decision's `approved` field (LLP 0030 — added at the
   terminal, stripped on any regression); a **review-only** foreign PR (`[review]` /
   `[adopt,review-only]`, LLP 0025/0032) terminates in a **verdict label**
@@ -656,6 +703,8 @@ begin. Delete the merged integration branch (local + `git push origin --delete`)
   (LLP 0024/0058), and skipping it leaves a gap open. In review-only mode neutral only
   reviews and posts the verdict.
 - **Branch-disjoint fan-out.** At most one worker per `integration/<slug>` / PR per tick.
+- **Bounded intake.** Continue every active surface, but create no more new work
+  branches than `observe.admission.available`; create none when it is zero (LLP 0060).
 - **Head-SHA keying.** "Green" and "reviewed" only count for the *current* head SHA;
   re-read it each tick.
 - **PENDING / UNKNOWN = wait, not act.** A running check or computing mergeability is

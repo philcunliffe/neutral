@@ -37,6 +37,10 @@ file → defaults. Tracked (not gitignored). Fields:
 > field (default `false`) — opt-in per repo to let the terminal reconcilePR rung
 > squash-merge a finished PR instead of holding it for a human.
 
+> **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+> adds `maxActiveWork` (default `4`) for bounded intake and `mergeQueue` (default
+> `false`) for queue-owned freshness and landing.
+
 ## Baseline
 
 `.neutral/baseline.json` (tracked) lists request LLPs that already existed / were

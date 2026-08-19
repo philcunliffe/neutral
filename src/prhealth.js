@@ -350,10 +350,11 @@ export function rollupConclusion(rollup) {
  * @param {PrObservation} pr
  * @param {number} [maxReviewRounds]
  * @param {boolean} [automerge]  opt-in (LLP 0019): terminal = merge, not hold
+ * @param {boolean} [mergeQueue] opt-in (LLP 0060): queue owns base freshness + landing
  * @returns {RungDecision}
  * @ref LLP 0009#pr-health-reconciler [implements]
  */
-export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerge = false) {
+export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerge = false, mergeQueue = false) {
   // Held for a human — wins over every rung. neutral sets `neutral:stuck` when it
   // cannot auto-advance a PR (an unresolved review finding, a design decision it
   // will not guess at, a conflict it backed off). The label is the authorization
@@ -393,11 +394,18 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   // @ref LLP 0058#foreign-is-review-only [implements]
   if (pr.foreign) return foreignRung(pr)
 
+  // A queue entry is GitHub-owned in-flight work. Keep the approval projection but
+  // do not heal/re-review/enqueue the same head while the queue validates it.
+  // @ref LLP 0060#merge-queue [implements]
+  if (mergeQueue && pr.queued) {
+    return { rung: 'terminal', action: 'wait', reason: 'enqueued — GitHub is validating the merge group', approved: true }
+  }
+
   // Rung 1 — mergeable.
   const m = classifyMergeable(pr.mergeable, pr.mergeStateStatus)
   if (m === 'wait') return { rung: 'mergeable', action: 'wait', reason: 'mergeability UNKNOWN — GitHub still computing' }
   if (m === 'resolve-conflict') return { rung: 'mergeable', action: 'resolve-conflict', reason: 'DIRTY — real merge conflict (highest blast radius)' }
-  if (m === 'merge-base') return { rung: 'mergeable', action: 'merge-base', reason: 'BEHIND — stale base, no conflict; merge target in mechanically' }
+  if (m === 'merge-base' && !mergeQueue) return { rung: 'mergeable', action: 'merge-base', reason: 'BEHIND — stale base, no conflict; merge target in mechanically' }
 
   // Rung 2 — green (keyed to the current head SHA).
   const g = rollupConclusion(pr.rollup)
@@ -433,6 +441,7 @@ export function selectRung(pr, maxReviewRounds = DEFAULT_REVIEW_ROUNDS, automerg
   // `neutral:approved` label to this field each tick, so the label is added here and stripped
   // the moment the PR leaves this terminal (any heal/review/stuck rung omits the field).
   // @ref LLP 0030 [implements] — head-accurate neutral:approved on own PRs
+  if (automerge && mergeQueue) return { rung: 'terminal', action: 'enqueue', reason: 'mergeable ∧ green ∧ reviewed, merge queue on — flip ready if draft, then enqueue this exact head', approved: true }
   if (automerge) return { rung: 'terminal', action: 'merge', reason: 'mergeable ∧ green ∧ reviewed, automerge on — flip ready if draft, then squash-merge', approved: true }
   if (pr.isDraft) return { rung: 'terminal', action: 'ready-hold', reason: 'mergeable ∧ green ∧ reviewed — flip ready, then HOLD', approved: true }
   return { rung: 'terminal', action: 'held', reason: 'already held for a human — nothing to do', approved: true }

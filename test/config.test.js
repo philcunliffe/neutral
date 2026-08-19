@@ -69,6 +69,26 @@ test('loadConfig accepts a boolean automerge, else keeps the default (off)', () 
   }
 })
 
+test('loadConfig accepts mergeQueue and a non-negative maxActiveWork (LLP 0060)', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
+  try {
+    assert.equal(DEFAULT_CONFIG.mergeQueue, false)
+    assert.equal(DEFAULT_CONFIG.maxActiveWork, 4)
+    mkdirSync(join(repo, '.neutral'))
+    const path = join(repo, '.neutral', 'config.json')
+    writeFileSync(path, JSON.stringify({ mergeQueue: true, maxActiveWork: 3 }))
+    assert.equal(loadConfig(repo).mergeQueue, true)
+    assert.equal(loadConfig(repo).maxActiveWork, 3)
+    writeFileSync(path, JSON.stringify({ mergeQueue: 'yes', maxActiveWork: -1 }))
+    assert.equal(loadConfig(repo).mergeQueue, false)
+    assert.equal(loadConfig(repo).maxActiveWork, 4)
+    writeFileSync(path, JSON.stringify({ maxActiveWork: 0 }))
+    assert.equal(loadConfig(repo).maxActiveWork, 0) // explicit intake stop
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('loadConfig accepts a boolean autophagy.codeCleanup, else keeps the default (on)', () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-cfg-'))
   try {

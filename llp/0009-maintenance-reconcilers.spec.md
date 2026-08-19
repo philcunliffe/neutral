@@ -101,6 +101,10 @@ per-tick fan-out of LLP 0010.)
      *precaution* only — CI (the green rung) is the authoritative gate after the
      push (LLP 0002: the resolving agent does not grade its own merge).
    - `UNKNOWN` → wait (GitHub still computing).
+
+   > **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+   > in `mergeQueue` mode an own PR's `BEHIND` state is satisfied by the queue's
+   > merge-group validation, so Neutral does not merge the target into every branch.
 2. **Green** — `gh pr view --json statusCheckRollup`, read against the current head
    SHA:
    - `FAILURE`/`ERROR` → an agent fixes from the failing logs
@@ -139,6 +143,10 @@ what, via the change-set DAG, unblocks dependents (LLP 0003).
 > (`automerge: true` in `.neutral/config.json`) the terminal rung emits `merge`
 > instead of `ready-hold`/`held` — flip ready if draft, then squash-merge. The
 > three rungs and the `neutral:stuck` override are unchanged.
+
+> **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+> with both `automerge` and `mergeQueue` enabled, the terminal emits `enqueue` and
+> then `wait`s while GitHub reports a `mergeQueueEntry`.
 
 **Reuse.** `reconcilePR` is shared with the pipeline family — the Reviewer
 reconciler (LLP 0000) becomes rung 3 plus the new mergeable/green rungs — so
