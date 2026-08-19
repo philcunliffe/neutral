@@ -55,6 +55,12 @@ export const DEFAULT_CONTEXT_THRESHOLD = 500_000
 // @ref LLP 0047#cooldown [implements] — the two disposition-keyed cooldowns
 export const DEFAULT_COOLDOWN_AFTER_MERGE_HOURS = 24
 export const DEFAULT_COOLDOWN_AFTER_REJECT_HOURS = 168
+// Admission control (LLP 0060): cap Neutral's non-frozen work surfaces so review
+// feedback cannot recursively fan out more PRs than the maintainer can absorb.
+// Four is the middle of the recommended 3-5 range; repos can tune it, including 0
+// as a temporary intake stop. Existing work continues to reconcile at the cap.
+// @ref LLP 0060#admission-control [implements]
+export const DEFAULT_MAX_ACTIVE_WORK = 4
 
 /** @type {NeutralConfig} */
 export const DEFAULT_CONFIG = {
@@ -91,6 +97,15 @@ export const DEFAULT_CONFIG = {
   // owner moves it here, in a tracked, reviewed file.
   // @ref LLP 0019 [implements] — automerge relaxes the hold, never the gates
   automerge: false,
+  // Opt-in landing strategy for an automerge repo whose target branch requires a
+  // GitHub merge queue. The queue owns base freshness and the final integration
+  // check; Neutral stops pushing target merges into every BEHIND branch.
+  // @ref LLP 0060#merge-queue [implements]
+  mergeQueue: false,
+  // Maximum non-frozen work surfaces (open PRs, unshipped change sets and active
+  // fix branches). At capacity, only new intake pauses; existing surfaces heal.
+  // @ref LLP 0060#admission-control [implements]
+  maxActiveWork: DEFAULT_MAX_ACTIVE_WORK,
   // Context-autophagy trigger threshold T, in tokens (LLP 0013). Per-repo tunable.
   contextRecycleThreshold: DEFAULT_CONTEXT_THRESHOLD,
   // Repo-hygiene autophagy members (LLP 0036). On by default — output is a held PR
@@ -131,6 +146,10 @@ function merge(base, over) {
       ? o.maxReviewRounds
       : base.maxReviewRounds,
     automerge: typeof o.automerge === 'boolean' ? o.automerge : base.automerge,
+    mergeQueue: typeof o.mergeQueue === 'boolean' ? o.mergeQueue : base.mergeQueue,
+    maxActiveWork: Number.isInteger(o.maxActiveWork) && o.maxActiveWork >= 0
+      ? o.maxActiveWork
+      : base.maxActiveWork,
     contextRecycleThreshold: Number.isInteger(o.contextRecycleThreshold) && o.contextRecycleThreshold > 0
       ? o.contextRecycleThreshold
       : base.contextRecycleThreshold,

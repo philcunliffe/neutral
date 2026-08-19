@@ -132,6 +132,24 @@ test('collectIdle: a held autophagy PR keeps the tick idle but blocks the next c
   }
 })
 
+test('collectIdle: admission capacity blocks a new cleanup initiative (LLP 0060)', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
+  try {
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ maxActiveWork: 1 }))
+    const exec = fakeWorld({
+      prs: [{ number: 1, headRefName: 'integration/x' }],
+      views: { 1: heldView(1, 'integration/x') }
+    })
+    const s = await collectIdle(repo, exec, () => 100_000)
+    assert.equal(s.idle, true)
+    assert.equal(s.admission.open, false)
+    assert.equal(s.initiative, null)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('collectIdle: an in-flight autophagy PR blocks idle like any own PR', async () => {
   const repo = mkdtempSync(join(tmpdir(), 'neutral-idle-'))
   try {

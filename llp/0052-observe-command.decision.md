@@ -14,6 +14,10 @@ had **no command at all**. `neutral backlog`, `neutral implementable`,
 `neutral prs` and `neutral issues` each report their own gap family, but two
 pipeline gaps were left to skill prose:
 
+> **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+> the same observe surface now also emits the deterministic active-work admission
+> state consumed by the reconciler skill.
+
 - *a change set with a plan but unmerged tasks* — findable only by enumerating
   `origin/integration/*` by hand and running `neutral ready <slug>` per branch,
   from a worktree of that branch (the working-tree read fails on the main

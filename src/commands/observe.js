@@ -11,6 +11,8 @@ import { collectChangeSets } from '../changesets.js'
 import { collectPRs } from './prs.js'
 import { collectIssues } from './issues.js'
 import { idleState } from '../idle.js'
+import { admissionState } from '../admission.js'
+import { loadConfig } from '../config.js'
 import { padStart } from '../format.js'
 
 /** @import { ChangeSetState, IdleBlocker, IssueFixState, Llp } from '../types.d.ts' */
@@ -21,9 +23,10 @@ import { padStart } from '../format.js'
  * report is offline-safe like its parts.
  * @param {string} repo
  * @param {typeof run} [exec]
- * @returns {Promise<{ backlog: Llp[], implementable: Array<{number: number, slug: string, title: string}>, changesets: ChangeSetState[], prs: Awaited<ReturnType<typeof collectPRs>>, issues: IssueFixState[], neutral: boolean, gaps: IdleBlocker[] }>}
+ * @returns {Promise<{ backlog: Llp[], implementable: Array<{number: number, slug: string, title: string}>, changesets: ChangeSetState[], prs: Awaited<ReturnType<typeof collectPRs>>, issues: IssueFixState[], admission: import('../types.d.ts').AdmissionState, neutral: boolean, gaps: IdleBlocker[] }>}
  */
 export async function collectObserve(repo, exec = run) {
+  const { maxActiveWork } = loadConfig(repo)
   const [{ backlog }, implementable, prs, issues] = await Promise.all([
     collectBacklog(repo),
     collectImplementable(repo, exec),
@@ -32,7 +35,8 @@ export async function collectObserve(repo, exec = run) {
   ])
   const changesets = await collectChangeSets(repo, exec, { openHeads: new Set(prs.map(p => p.head)) })
   const { idle, blockers } = idleState({ backlog, implementable, changesets, prs, issues })
-  return { backlog, implementable, changesets, prs, issues, neutral: idle, gaps: blockers }
+  const admission = admissionState({ changesets, prs, issues }, maxActiveWork)
+  return { backlog, implementable, changesets, prs, issues, admission, neutral: idle, gaps: blockers }
 }
 
 /**
@@ -59,6 +63,7 @@ export async function observeCommand(repo, args, exec = run) {
     const none = '  (none)'
     process.stdout.write(
       (o.neutral ? 'observe: neutral state — no gaps\n' : `observe: ${o.gaps.length} gap(s)\n`) +
+      `admission: ${o.admission.used}/${o.admission.limit} active, ${o.admission.available} available — ${o.admission.open ? 'OPEN' : 'PAUSED'}\n` +
       'pipeline\n' +
       ' backlog — requests needing a design:\n' +
       (o.backlog.length ? o.backlog.map(l => `  ${padStart(String(l.number), 4, '0')}  ${l.title}  [${l.type}]`).join('\n') : none) + '\n' +

@@ -30,6 +30,10 @@ This decision inserts a **triage** step at the cap. Before parking, neutral re-j
 they ride the **issue-fix** reconciler, so a deferred finding reaches neutral state only
 when its `neutral:fix` issue has a fix attempt (the two invariants compose — LLP 0008).
 
+> **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+> the follow-up issue is still recorded immediately, but its fix attempt waits for
+> `maxActiveWork` admission. Review feedback cannot bypass the global work cap.
+
 ## The triage judgment lives in the worker, not the classifier
 
 "Could this cause a production defect?" is a judgment, so it stays **out** of the pure rung

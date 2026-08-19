@@ -38,6 +38,10 @@ flips a draft ready (`gh pr ready`) and **squash-merges** it (`gh pr merge
 --squash`), the same squash-only-at-the-final-PR rule as the human merge
 (LLP 0003).
 
+> **Extended-by [LLP 0060](0060-admission-control-and-merge-queue.decision.md):**
+> `mergeQueue: true` changes this landing strategy from direct `merge` to `enqueue`;
+> `automerge` remains the explicit authority to take either terminal action.
+
 Everything upstream of the terminal rung is unchanged — automerge **relaxes the
 hold, never the gates**:
 

@@ -10,10 +10,10 @@ import { collectIssues } from '../src/commands/issues.js'
 /**
  * A fake runner that answers both `git` (for-each-ref) and `gh` (pr/issue), so the
  * maintenance observe surface can be exercised fully offline.
- * @param {{prs?: any[], views?: Record<number, any>, issues?: any[], fixBranches?: string[], mergedPrs?: any[]}} cfg
+ * @param {{prs?: any[], views?: Record<number, any>, issues?: any[], fixBranches?: string[], mergedPrs?: any[], queuedIds?: string[]}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [], mergedPrs = [] } = {}) {
+function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [], mergedPrs = [], queuedIds = [] } = {}) {
   return async (cmd, args) => {
     if (cmd === 'git' && args[0] === 'for-each-ref') {
       // only the `fix/*` lookup is exercised here
@@ -33,6 +33,10 @@ function fakeWorld({ prs = [], views = {}, issues = [], fixBranches = [], merged
     }
     if (cmd === 'gh' && args[0] === 'issue' && args[1] === 'list') {
       return JSON.stringify(issues)
+    }
+    if (cmd === 'gh' && args[0] === 'api' && args[1] === 'graphql') {
+      const id = String(args.find(a => String(a).startsWith('id=')) || '').slice(3)
+      return JSON.stringify({ data: { node: { mergeQueueEntry: queuedIds.includes(id) ? { id: `entry-${id}` } : null } } })
     }
     throw new Error('unexpected ' + cmd + ' ' + args.join(' '))
   }
@@ -92,6 +96,28 @@ test('an adopted PR rides the own ladder to the terminal — automerge merges it
     mkdirSync(join(repo, '.neutral'))
     writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ automerge: true }))
     assert.deepEqual((await collectPRs(repo, exec)).map(p => [p.number, p.action]), [[9, 'merge']])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('collectPRs queue mode ignores BEHIND, enqueues a clean terminal, then waits in queue (LLP 0060)', async () => {
+  const base = {
+    id: 'PR_1', number: 1, headRefName: 'integration/auth', baseRefName: 'main', isDraft: false,
+    mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', statusCheckRollup: [],
+    headRefOid: 'abc1234', body: '<!-- neutral-review: abc1234 -->'
+  }
+  const repo = mkdtempSync(join(tmpdir(), 'neutral-prs-'))
+  try {
+    mkdirSync(join(repo, '.neutral'))
+    writeFileSync(join(repo, '.neutral', 'config.json'), JSON.stringify({ automerge: true, mergeQueue: true }))
+    const open = fakeWorld({ prs: [{ number: 1, headRefName: 'integration/auth' }], views: { 1: base } })
+    assert.equal((await collectPRs(repo, open))[0].action, 'enqueue')
+    const queued = fakeWorld({ prs: [{ number: 1, headRefName: 'integration/auth' }], views: { 1: base }, queuedIds: ['PR_1'] })
+    const [p] = await collectPRs(repo, queued)
+    assert.equal(p.action, 'wait')
+    assert.equal(p.queued, true)
+    assert.equal(p.approved, true)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

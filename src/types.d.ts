@@ -103,6 +103,10 @@ export interface NeutralConfig {
   maxReviewRounds: number
   /** Opt-in (LLP 0019): terminal rung squash-merges a finished PR instead of holding it. */
   automerge: boolean
+  /** Opt-in (LLP 0060): use GitHub's merge queue for automerge landing and base freshness. */
+  mergeQueue: boolean
+  /** Admission cap over non-frozen PR/change-set/fix work surfaces (LLP 0060). */
+  maxActiveWork: number
   /** Context-autophagy trigger threshold T, in tokens (LLP 0013). */
   contextRecycleThreshold: number
   /** Repo-hygiene autophagy switches + cooldowns (LLP 0036/0047); future members add theirs here. */
@@ -180,6 +184,10 @@ export interface PrObservation {
   reviewOnly?: boolean
   /** The comment thread, chronological — carries the marker-signed review records (LLP 0028), the stuck report, the human replies that unstick a held PR (LLP 0026/0027), and the `neutral: rounds +N` review-budget grants (LLP 0059). */
   comments: PrComment[]
+  /** GraphQL node id, used to query the mergeQueueEntry field when queue mode is on. */
+  nodeId?: string
+  /** True when GitHub currently reports a merge queue entry for this PR (LLP 0060). */
+  queued?: boolean
 }
 
 /** The single rung action reconcilePR takes on a PR this tick (LLP 0009). */
@@ -187,7 +195,7 @@ export interface RungDecision {
   /** mergeable | green | reviewed | terminal. */
   rung: string
   /**
-   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge |
+   * wait | merge-base | resolve-conflict | fix-ci | review | triage | ready-hold | merge | enqueue |
    * stuck-report | unstick | held | approve | request-changes | mark-adopted.
    * `triage` (review rounds exhausted) is where a blanket `stuck` used to be: the worker
    * judges the residual findings and either defers non-blockers to a `neutral:fix` follow-up
@@ -198,6 +206,8 @@ export interface RungDecision {
    * or pushed since it (remove the label, ack, re-run the rungs next tick), else `held`.
    * `merge` is the terminal action only when the repo opted in (`automerge`, LLP 0019):
    * flip ready if draft, then squash-merge — instead of `ready-hold`/`held`.
+   * `enqueue` replaces `merge` when `mergeQueue` is also on (LLP 0060); an already
+   * queued PR returns `wait` with `approved: true` until GitHub lands or removes it.
    * `approve` / `request-changes` are the terminal + degraded actions for a *review-only*
    * foreign PR (LLP 0025/0058): they set the `neutral:approved` / `neutral:changes-requested`
    * verdict labels instead of readying or merging a contributor's PR. `request-changes` also
@@ -218,6 +228,24 @@ export interface RungDecision {
    * `approve`).
    */
   approved?: boolean
+}
+
+/** One work surface consuming (or frozen outside) the admission cap (LLP 0060). */
+export interface AdmissionSurface {
+  kind: 'pr' | 'changeset' | 'issue'
+  target: string
+  reason: string
+}
+
+/** Deterministic new-work admission state emitted by `neutral observe` (LLP 0060). */
+export interface AdmissionState {
+  limit: number
+  used: number
+  available: number
+  open: boolean
+  active: AdmissionSurface[]
+  frozen: AdmissionSurface[]
+  reason: string
 }
 
 /** One reason a tick is not idle: a gap still in flight in one of the families (LLP 0013). */

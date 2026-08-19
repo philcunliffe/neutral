@@ -18,6 +18,7 @@ import { collectChangeSets } from '../changesets.js'
 import { collectPRs } from './prs.js'
 import { collectIssues } from './issues.js'
 import { idleState } from '../idle.js'
+import { admissionState } from '../admission.js'
 import { selectInitiative } from '../autophagy.js'
 import { listDisposedAutophagyPRs } from '../github.js'
 import { readContextSize } from '../context.js'
@@ -35,11 +36,11 @@ import { readContextSize } from '../context.js'
  * @param {typeof run} [exec]
  * @param {() => (number|null)} [readCtx]
  * @param {{ now?: number, damped?: string[] }} [opts]
- * @returns {Promise<{ idle: boolean, recycle: boolean, initiative: string|null, contextSize: number|null, threshold: number, blockers: import('../types.d.ts').IdleBlocker[], members: import('../types.d.ts').MemberState[] }>}
+ * @returns {Promise<{ idle: boolean, recycle: boolean, initiative: string|null, contextSize: number|null, threshold: number, admission: import('../types.d.ts').AdmissionState, blockers: import('../types.d.ts').IdleBlocker[], members: import('../types.d.ts').MemberState[] }>}
  */
 export async function collectIdle(repo, exec = run, readCtx = readContextSize, { now = Date.now(), damped = [] } = {}) {
   const config = loadConfig(repo)
-  const { contextRecycleThreshold: threshold } = config
+  const { contextRecycleThreshold: threshold, maxActiveWork } = config
   const [{ backlog }, implementable, prs, issues, disposed] = await Promise.all([
     collectBacklog(repo),
     collectImplementable(repo, exec),
@@ -51,13 +52,17 @@ export async function collectIdle(repo, exec = run, readCtx = readContextSize, {
   // @ref LLP 0052#idle-extension [implements] — the idle predicate sees change-set gaps
   const changesets = await collectChangeSets(repo, exec, { openHeads: new Set(prs.map(p => p.head)) })
   const { idle, blockers } = idleState({ backlog, implementable, changesets, prs, issues })
+  const admission = admissionState({ changesets, prs, issues }, maxActiveWork)
   const contextSize = readCtx()
   const recycle = idle && contextSize !== null && contextSize > threshold
   const { initiative: member, members } = selectInitiative({ openPRs: prs, disposed, config, now, damped })
   // @ref LLP 0035#priority [implements] — recycle preempts repo hygiene
   // @ref LLP 0047#selection [implements] — else the LRR member, else null
-  const initiative = recycle ? 'recycle' : (idle ? member : null)
-  return { idle, recycle, initiative, contextSize, threshold, blockers, members }
+  // Repo-hygiene creates a new work surface, so the same admission gate applies.
+  // Context recycle creates no repo work and may still run while intake is paused.
+  // @ref LLP 0060#admission-control [implements]
+  const initiative = recycle ? 'recycle' : (idle && admission.open ? member : null)
+  return { idle, recycle, initiative, contextSize, threshold, admission, blockers, members }
 }
 
 /**
@@ -77,7 +82,7 @@ export async function idleCommand(repo, args, exec = run, readCtx = readContextS
     process.stdout.write(JSON.stringify(s, null, 2) + '\n')
   } else {
     const ctx = s.contextSize === null ? 'unmeasured' : `${s.contextSize} tok`
-    process.stdout.write(`idle=${s.idle} initiative=${s.initiative ?? 'none'} context=${ctx} (T=${s.threshold})\n`)
+    process.stdout.write(`idle=${s.idle} initiative=${s.initiative ?? 'none'} context=${ctx} (T=${s.threshold}) admission=${s.admission.used}/${s.admission.limit}\n`)
     if (!s.idle) {
       for (const b of s.blockers) process.stdout.write(`  blocker: ${b.family} ${b.target} — ${b.reason}\n`)
     } else if (s.initiative !== 'recycle') {

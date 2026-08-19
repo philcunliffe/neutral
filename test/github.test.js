@@ -1,14 +1,14 @@
 // @ts-check
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { listOpenPRs, listMergedAdoptPRs, viewPR, normalizePR, listLabelledIssues, listOpenPRBodies } from '../src/github.js'
+import { listOpenPRs, listMergedAdoptPRs, viewPR, normalizePR, isPRQueued, listLabelledIssues, listOpenPRBodies } from '../src/github.js'
 
 /**
  * A fake `gh` runner keyed by subcommand. `fail` makes every call throw (offline).
- * @param {{prList?: any, prView?: any, issueList?: any, prBodies?: any, mergedList?: any, fail?: boolean}} cfg
+ * @param {{prList?: any, prView?: any, issueList?: any, prBodies?: any, mergedList?: any, queueEntry?: any, fail?: boolean}} cfg
  * @returns {import('../src/git.js').run}
  */
-function fakeGh({ prList, prView, issueList, prBodies, mergedList, fail = false } = {}) {
+function fakeGh({ prList, prView, issueList, prBodies, mergedList, queueEntry, fail = false } = {}) {
   return async (cmd, args) => {
     if (fail) { const e = new Error('gh: no remote'); /** @type {any} */ (e).code = 1; throw e }
     assert.equal(cmd, 'gh')
@@ -18,6 +18,7 @@ function fakeGh({ prList, prView, issueList, prBodies, mergedList, fail = false 
       return JSON.stringify(fields.includes('body') ? prBodies : prList)
     }
     if (args[0] === 'pr' && args[1] === 'view') return JSON.stringify(prView)
+    if (args[0] === 'api' && args[1] === 'graphql') return JSON.stringify({ data: { node: { mergeQueueEntry: queueEntry } } })
     if (args[0] === 'issue' && args[1] === 'list') return JSON.stringify(issueList)
     throw new Error('unexpected gh ' + args.join(' '))
   }
@@ -41,8 +42,8 @@ test('listMergedAdoptPRs filters by state+label via gh, and is empty when gh fai
 })
 
 test('normalizePR fills stable defaults from a raw gh object', () => {
-  assert.deepEqual(normalizePR({ number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }], comments: [{ author: { login: 'phil' }, body: 'looks stuck', createdAt: '2026-07-07T10:00:00Z', url: 'ignored' }] }), {
-    number: 3, head: 'integration/y', base: 'main', isDraft: true,
+  assert.deepEqual(normalizePR({ id: 'PR_node', number: 3, headRefName: 'integration/y', baseRefName: 'main', isDraft: true, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', statusCheckRollup: [{ state: 'SUCCESS' }], headRefOid: 'deadbeef', body: 'b', labels: [{ name: 'neutral:stuck' }, { name: 'enhancement' }], comments: [{ author: { login: 'phil' }, body: 'looks stuck', createdAt: '2026-07-07T10:00:00Z', url: 'ignored' }] }), {
+    nodeId: 'PR_node', number: 3, head: 'integration/y', base: 'main', isDraft: true,
     mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', rollup: [{ state: 'SUCCESS' }], headSha: 'deadbeef', body: 'b',
     labels: ['neutral:stuck', 'enhancement'], canPush: true,
     comments: [{ author: 'phil', body: 'looks stuck', createdAt: '2026-07-07T10:00:00Z' }]
@@ -67,6 +68,13 @@ test('viewPR observes one PR; null on gh failure', async () => {
   const obs = await viewPR('/r', 5, exec)
   assert.equal(obs?.mergeStateStatus, 'DIRTY')
   assert.equal(await viewPR('/r', 5, fakeGh({ fail: true })), null)
+})
+
+test('isPRQueued reads the GraphQL-only merge queue entry and degrades false', async () => {
+  assert.equal(await isPRQueued('/r', 'PR_node', fakeGh({ queueEntry: { id: 'MQE_node' } })), true)
+  assert.equal(await isPRQueued('/r', 'PR_node', fakeGh({ queueEntry: null })), false)
+  assert.equal(await isPRQueued('/r', '', fakeGh({ queueEntry: { id: 'MQE_node' } })), false)
+  assert.equal(await isPRQueued('/r', 'PR_node', fakeGh({ fail: true })), false)
 })
 
 test('listLabelledIssues flattens label objects to names', async () => {

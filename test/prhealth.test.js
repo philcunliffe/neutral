@@ -245,6 +245,21 @@ test('selectRung terminal with automerge on: merge instead of hold, gates unchan
   assert.equal(selectRung(pr({ labels: ['neutral:stuck'], body, headSha: 'abc1234', comments: reported }), 2, AUTOMERGE).action, 'held')
 })
 
+test('merge queue mode delegates BEHIND freshness and emits enqueue only at terminal (LLP 0060)', () => {
+  const body = '<!-- neutral-review: abc1234 -->'
+  const QUEUE = true
+  assert.equal(selectRung(pr({ mergeStateStatus: 'BEHIND', body, headSha: 'abc1234' }), 2, true, QUEUE).action, 'enqueue')
+  assert.equal(selectRung(pr({ mergeStateStatus: 'DIRTY', mergeable: 'CONFLICTING', body }), 2, true, QUEUE).action, 'resolve-conflict')
+  assert.equal(selectRung(pr({ mergeStateStatus: 'BEHIND', headSha: 'newhead', body }), 2, true, QUEUE).action, 'review')
+})
+
+test('an enqueued PR waits with approval intact until GitHub lands or removes it', () => {
+  const d = selectRung(pr({ queued: true, mergeStateStatus: 'BEHIND' }), 2, true, true)
+  assert.equal(d.action, 'wait')
+  assert.equal(d.approved, true)
+  assert.match(d.reason, /merge group/)
+})
+
 // One report comment at the given SHA — the thread baseline for the stuck tests.
 /** @param {string} sha */
 function report(sha) {

@@ -22,7 +22,7 @@ import { AUTOPHAGY_PREFIX } from './autophagy.js'
 // @ref LLP 0025#push-access-canpush [implements] — isCrossRepository/maintainerCanModify
 // @ref LLP 0027 [implements] — observe the comment thread the unstick predicate reads
 // @ref LLP 0028 [implements] — observe the comment thread the review records live in
-const PR_VIEW_FIELDS = 'number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify,comments'
+const PR_VIEW_FIELDS = 'id,number,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,body,labels,isCrossRepository,maintainerCanModify,comments'
 
 /**
  * Numbers, head branches, and labels of every open PR. Used to enumerate + classify scope
@@ -105,6 +105,7 @@ export async function listDisposedAutophagyPRs(repo, exec = run) {
  */
 export function normalizePR(o) {
   return {
+    nodeId: o.id || '',
     number: o.number,
     head: o.headRefName || '',
     base: o.baseRefName || '',
@@ -129,6 +130,28 @@ export function normalizePR(o) {
       body: (c && c.body) || '',
       createdAt: (c && c.createdAt) || ''
     }))
+  }
+}
+
+/**
+ * Whether GitHub currently has this PR in its base branch's merge queue. The
+ * mergeQueueEntry field is GraphQL-only (not exposed by `gh pr view --json`), so
+ * queue-enabled repos make this small second read. Failure is conservative: not
+ * queued, which lets a later idempotent enqueue retry repair a dropped entry.
+ * @param {string} repo
+ * @param {string} nodeId
+ * @param {typeof run} [exec]
+ * @returns {Promise<boolean>}
+ * @ref LLP 0060#merge-queue [implements]
+ */
+export async function isPRQueued(repo, nodeId, exec = run) {
+  if (!nodeId) return false
+  const query = 'query($id:ID!){node(id:$id){... on PullRequest{mergeQueueEntry{id}}}}'
+  try {
+    const out = await exec('gh', ['api', 'graphql', '-f', `query=${query}`, '-F', `id=${nodeId}`], repo)
+    return !!(JSON.parse(out)?.data?.node?.mergeQueueEntry?.id)
+  } catch {
+    return false
   }
 }
 
